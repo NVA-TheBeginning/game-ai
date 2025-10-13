@@ -10,7 +10,7 @@ env:
   CI: true
 
 jobs:
-  lint-and-type-check:
+  lint:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,6 +20,7 @@ jobs:
       uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
       with:
           enable-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
 
     - name: Install dependencies
       run: uv sync
