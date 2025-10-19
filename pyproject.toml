@@ -7,4 +7,4 @@ requires-python = ">=3.14.0"
 dependencies = ["websockets>=15.0.1"]
 
 [dependency-groups]
-dev = ["pytest>=8.4.2", "ruff>=0.14.0", "ty>=0.0.1a22"]
+dev = ["pytest>=8.4.2", "ruff>=0.14.1", "ty>=0.0.1a23"]
