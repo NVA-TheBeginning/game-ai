@@ -6,11 +6,7 @@ import string
 from typing import Any, Dict, Optional, List
 import websockets
 
-# Configuration (defined directly as constants)
-SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 3000
-BOT_WS_PATH = "/bot"
-SERVER_WS = f"ws://{SERVER_HOST}:{SERVER_PORT}{BOT_WS_PATH}"
+SERVER_WS = f"ws://localhost:3000/bot"
 
 QTABLE_FILE = "qtable.json"
 PRUNE_MAX_TARGETS = 50
@@ -52,6 +48,7 @@ def get_state_key(state: Dict[str, Any]) -> str:
     in_spawn = bool(state.get("inSpawnPhase", False))
     candidates = state.get("candidates") or {}
     population = state.get("me", {}).get("population", 0.0) or 0.0
+    me = state.get("me", {}) or {}
     empty_count = len(candidates.get("emptyNeighbors") or [])
     enemy_count = len(candidates.get("enemyNeighbors") or [])
     rank = state.get("me", {}).get("rank", 0) or 0
@@ -277,7 +274,7 @@ async def send_action_intent(ws, client_id: str, game_id: str, username: str, ac
                 "y": action.get("y"),
             },
         }
-        print(f"SENDING SPAWN INTENT: {intent_msg}")
+        # print(f"SENDING SPAWN INTENT: {intent_msg}")
         await send_intent(ws, intent_msg, "SPAWN")
         return player_id
 
@@ -310,7 +307,7 @@ async def send_action_intent(ws, client_id: str, game_id: str, username: str, ac
                 "troops": troops,
             },
         }
-        print(f"SENDING ATTACK INTENT: {intent_attack}")
+        # print(f"SENDING ATTACK INTENT: {intent_attack}")
         await send_intent(ws, intent_attack, "ATTACK")
         return player_id
 
@@ -329,9 +326,61 @@ async def process_state_tick(ws, state: Dict[str, Any], context: Dict[str, Any])
     troops = me.get("troops")
     owned = me.get("owned") or []
 
-    if (isinstance(tick, int) and (tick % PRINT_INTERVAL == 0 or tick < PRINT_INTERVAL)):
+    # --- detect and print incoming/outgoing attacks involving this player ---
+    try:
+        players_list = state.get("players") or []
+        # map smallID -> player object
+        players_map = {p.get("smallID"): p for p in players_list if p is not None}
+        prev_players_map = context.get("prev_players_map") or {}
+
+        if small_id is not None:
+            my_curr = players_map.get(small_id) or {}
+            my_prev = prev_players_map.get(small_id) or {}
+
+            curr_incoming = my_curr.get("incomingAttacks") or []
+            prev_incoming = my_prev.get("incomingAttacks") or []
+            curr_outgoing = my_curr.get("outgoingAttacks") or []
+            prev_outgoing = my_prev.get("outgoingAttacks") or []
+
+            def _normalize(a: Dict[str, Any]) -> Optional[tuple]:
+                # Accept either attackerID/attackerSmallID and targetID/targetSmallID
+                try:
+                    attacker = a.get("attackerID") if a.get("attackerID") is not None else a.get("attackerSmallID")
+                    target = a.get("targetID") if a.get("targetID") is not None else a.get("targetSmallID")
+                    troops = a.get("troops")
+                    return (int(attacker) if attacker is not None else None, int(target) if target is not None else None, int(troops) if troops is not None else None)
+                except Exception:
+                    return None
+
+            prev_in_keys = set(filter(None, (_normalize(a) for a in prev_incoming)))
+            for a in curr_incoming:
+                key = _normalize(a)
+                if key and key not in prev_in_keys:
+                    attacker_id = key[0]
+                    troops_n = key[2]
+                    attacker = players_map.get(attacker_id) or {}
+                    attacker_name = attacker.get("displayName") or attacker.get("name") or f"#{attacker_id}"
+                    print(f"[tick {tick}] INCOMING attack from {attacker_name}: {troops_n} troops")
+
+            prev_out_keys = set(filter(None, (_normalize(a) for a in prev_outgoing)))
+            for a in curr_outgoing:
+                key = _normalize(a)
+                if key and key not in prev_out_keys:
+                    target_id = key[1]
+                    troops_n = key[2]
+                    target = players_map.get(target_id) or {}
+                    target_name = target.get("displayName") or target.get("name") or f"#{target_id}"
+                    print(f"[tick {tick}] OUTGOING attack to {target_name}: {troops_n} troops")
+
+        # store players map for next tick comparison
+        context["prev_players_map"] = players_map
+    except Exception:
+        # best-effort only; don't fail the bot loop on parse errors
+        pass
+
+    if (isinstance(tick, int) and (tick % PRINT_INTERVAL == 0)):
         print(
-            f"Tick {tick}: smallID={small_id} troops={troops if troops is not None else 'N/A'} owned={len(owned)}",
+            f"Tick {tick}: me={me}",
         )
 
     in_spawn = bool(state.get("inSpawnPhase", False))
@@ -361,7 +410,7 @@ async def process_state_tick(ws, state: Dict[str, Any], context: Dict[str, Any])
                     "y": auto.get("y"),
                 },
             }
-            print(f"AUTO-SENDING SPAWN INTENT: {spawn_intent}")
+            # print(f"AUTO-SENDING SPAWN INTENT: {spawn_intent}")
             await send_intent(ws, spawn_intent, "AUTO-SPAWN")
             # record for learning
             agent.previous_state = state
@@ -380,9 +429,10 @@ async def process_state_tick(ws, state: Dict[str, Any], context: Dict[str, Any])
         except Exception:
             reward_val = 0.0
         agent.update(state, reward_val)
+        context["total_score"] = context.get("total_score", 0.0) + reward_val
         if (isinstance(tick, int) and (tick % PRINT_INTERVAL == 0 or tick < PRINT_INTERVAL)):
             prev_action_str = get_action_key(agent.previous_action)
-            print(f"Tick {tick}: Action={prev_action_str}, Reward={safe_num(reward_val)} , QStates={len(agent.qtable)}")
+            print(f"Tick {tick}: Action={prev_action_str}, TotalScore={safe_num(context['total_score'])} , QStates={len(agent.qtable)}")
 
     # Decide and send action for this tick
     possible_actions = get_possible_actions(state)
@@ -422,6 +472,7 @@ async def run_bot_loop():
             "last_tick": None,
             "last_in_spawn": False,
             "autosave_timer": 0,
+            "total_score": 0.0,
             "username": username,
         }
 

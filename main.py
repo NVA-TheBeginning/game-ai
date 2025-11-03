@@ -37,7 +37,11 @@ def arg_max(table: Dict[str, float]) -> str:
 def get_state_key(state: Dict[str, Any]) -> str:
     in_spawn = state.get("inSpawnPhase", False)
     candidates = state.get("candidates") or {}
-    population = state.get("me", {}).get("population", 0.0)
+    population = state.get("me", {}).get("population")
+    try:
+        population = float(population) if population is not None else 0.0
+    except Exception:
+        population = 0.0
     empty_count = len(candidates.get("emptyNeighbors") or [])
     enemy_count = len(candidates.get("enemyNeighbors") or [])
     return f"spawn:{in_spawn}|empty:{empty_count}|enemy:{enemy_count}|population:{population:.2f}"
