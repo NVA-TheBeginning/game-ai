@@ -2,6 +2,7 @@
 	"recommendations": [
 		"ms-python.python",
 		"astral-sh.ty",
-		"charliermarsh.ruff"
+		"charliermarsh.ruff",
+		"the0807.uv-toolkit"
 	]
 }
