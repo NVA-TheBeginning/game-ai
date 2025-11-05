@@ -1,21 +1,14 @@
 import asyncio
 import json
+import pickle
 import random
-import os
+from pathlib import Path
 from typing import Any, Dict
 from websockets.asyncio.server import ServerConnection, serve
 
 
 PORT = 8765
-QTABLE_FILE = "qtable.json"
-
-GAME_END_CONQUEST_THRESHOLD = 80.0
-PRUNE_MAX_TARGETS = 50
-ATTACK_RATIOS = [0.20, 0.40, 0.60, 0.80]
-EPSILON_MIN = 0.02
-EPSILON_DECAY = 0.9995
-AUTOSAVE_INTERVAL = 300
-
+QTABLE_FILE = "qtable.pkl"
 
 # Reward constants
 REWARD_CAPTURE_ENEMY = 0.0
@@ -137,32 +130,30 @@ class Agent:
             self.qtable[prev_state_key] = {}
         self.qtable[prev_state_key][prev_action_key] = current_q + delta
 
-    def save_qtable(self, file_path: str) -> None:
-        print(f"Saving Q-table with {len(self.qtable)} states to {file_path}...")
+    def save_qtable(self, filename: str = QTABLE_FILE) -> None:
         try:
-            with open(file_path, "w") as f:
-                json.dump(self.qtable, f, indent=4)
-            print("Saved Q-table successfully.")
-        except (IOError, PermissionError) as e:
+            with open(filename, "wb") as f:
+                pickle.dump(self.qtable, f)
+            print(f"Q-table saved to {filename} ({len(self.qtable)} states)")
+        except Exception as e:
             print(f"Error saving Q-table: {e}")
 
-    def load_qtable(self, file_path: str) -> None:
-        if not os.path.exists(file_path):
-            print(f"No Q-table file found at {file_path}. Creating new table.")
+    def load_qtable(self, filename: str = QTABLE_FILE) -> None:
+        if not Path(filename).exists():
+            print(f"No saved Q-table found at {filename}, starting fresh")
             return
 
-        print(f"Loading Q-table from {file_path}...")
         try:
-            with open(file_path, "r") as f:
-                self.qtable = json.load(f)
-            print(f"Loaded {len(self.qtable)} states.")
-        except (IOError, json.JSONDecodeError) as e:
-            print(f"Error loading Q-table: {e}. Creating new table.")
+            with open(filename, "rb") as f:
+                self.qtable = pickle.load(f)
+            print(f"Q-table loaded from {filename} ({len(self.qtable)} states)")
+        except Exception as e:
+            print(f"Error loading Q-table: {e}, starting fresh")
             self.qtable = {}
 
 
 agent = Agent()
-agent.load_qtable(QTABLE_FILE)
+agent.load_qtable()
 
 
 def calculate_reward(
@@ -256,41 +247,43 @@ async def handle(ws: ServerConnection):
     last_tick = None
     previous_state = None
 
-    async for message in ws:
-        try:
-            state = json.loads(message)
-        except Exception:
-            continue
-        if state.get("type") != "state":
-            continue
+    try:
+        async for message in ws:
+            try:
+                state = json.loads(message)
+            except Exception:
+                continue
+            if state.get("type") != "state":
+                continue
 
-        tick = state.get("tick")
-        if tick == last_tick:
-            continue
-        last_tick = tick
+            tick = state.get("tick")
+            if tick == last_tick:
+                continue
+            last_tick = tick
 
-        # Calculate reward and update Q-table if we have a previous state
-        if previous_state is not None and agent.previous_action is not None:
-            reward = calculate_reward(previous_state, state, agent.previous_action)
-            agent.update(state, reward)
-            prev_action_str = get_action_key(agent.previous_action)
-            print(
-                f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={len(agent.qtable)}"
-            )
+            # Calculate reward and update Q-table if we have a previous state
+            if previous_state is not None and agent.previous_action is not None:
+                reward = calculate_reward(previous_state, state, agent.previous_action)
+                agent.update(state, reward)
+                prev_action_str = get_action_key(agent.previous_action)
+                print(
+                    f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={len(agent.qtable)}"
+                )
 
-        action = agent_action_with_decay(agent, state, possible_actions=get_possible_actions(state))
-        if action is not None:
-            if action.get("type") != "none":
-                await ws.send(json.dumps(action))
-            else:
-                print(f"Tick {tick}: Agent chose to do nothing")
+            action = decide_action(state)
+            if action is not None:
+                if action.get("type") != "none":
+                    await ws.send(json.dumps(action))
+                else:
+                    print(f"Tick {tick}: Agent chose to do nothing")
 
-            agent.previous_state = state
-            agent.previous_action = action
+                agent.previous_state = state
+                agent.previous_action = action
 
-        previous_state = state
-
-    agent.save_qtable(QTABLE_FILE)
+            previous_state = state
+    finally:
+        print("\nConnection closed, saving Q-table...")
+        agent.save_qtable()
 
 
 async def main():
@@ -303,7 +296,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Shutting down server...")
-        print("Saving Q-table before exit...")
-        agent.save_qtable(QTABLE_FILE)
-        pass
+        print("\nShutting down, saving Q-table...")
+        agent.save_qtable()

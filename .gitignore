@@ -11,3 +11,4 @@ wheels/
 
 **/*.claude
 *.ropeproject
+*.pkl

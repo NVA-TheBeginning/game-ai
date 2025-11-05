@@ -1,0 +1,13 @@
+// https://zed.dev/docs/configuring-zed#settings-files
+{
+	"languages": {
+		"Python": {
+			"language_servers": [
+				// Disable basedpyright and enable Ty
+				"ty",
+				"!basedpyright",
+				"..."
+			]
+		}
+	}
+}
