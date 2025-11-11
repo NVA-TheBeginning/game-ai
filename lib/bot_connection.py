@@ -64,6 +64,43 @@ class BotConnection:
         except Exception as e:
             print(f"Failed to send {log_prefix}:", e)
 
+    def _safe_update_env(self, env_obj: Any, state: Dict[str, Any]) -> None:
+        """Try to update provided env-like object with new state.
+
+        Supports:
+        - objects exposing update_state(state)
+        - objects with attributes `current_state`/`previous_state`
+        - plain dicts used as state storage
+        Falls back silently if none apply.
+        """
+        try:
+            if hasattr(env_obj, "update_state") and callable(getattr(env_obj, "update_state")):
+                env_obj.update_state(state)
+                return
+        except Exception:
+            pass
+
+        # If it's a mapping (dict-like)
+        try:
+            if isinstance(env_obj, dict):
+                env_obj["previous_state"] = env_obj.get("current_state")
+                env_obj["current_state"] = state
+                return
+        except Exception:
+            pass
+
+        # Try attribute assignment as last resort
+        try:
+            prev = getattr(env_obj, "current_state", None)
+            try:
+                setattr(env_obj, "previous_state", prev)
+                setattr(env_obj, "current_state", state)
+                return
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def choose_auto_spawn(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         empty_neighbors = (state.get("candidates") or {}).get("emptyNeighbors") or []
         if empty_neighbors:
@@ -244,7 +281,16 @@ class BotConnection:
 
         self.last_in_spawn = in_spawn
 
-        self.env.update_state(state)
+        # update env state using a safe helper in case env is a plain dict or lacks update_state
+        try:
+            self._safe_update_env(self.env, state)
+        except Exception:
+            # defensive: fallback to best-effort assignments
+            try:
+                self.env.previous_state = getattr(self.env, "current_state", None)
+                self.env.current_state = state
+            except Exception:
+                pass
         if (
             self.agent.previous_state is not None
             and self.agent.previous_action is not None

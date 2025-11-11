@@ -40,7 +40,22 @@ class ServerInterface:
                 if tick == last_tick:
                     continue
                 last_tick = tick
-                self.env.update_state(state)
+                # update env state defensively (support objects, dicts, or attribute-style env)
+                try:
+                    if hasattr(self.env, "update_state") and callable(getattr(self.env, "update_state")):
+                        self.env.update_state(state)
+                    elif isinstance(self.env, dict):
+                        self.env["previous_state"] = self.env.get("current_state")
+                        self.env["current_state"] = state
+                    else:
+                        # try attribute assignment
+                        try:
+                            setattr(self.env, "previous_state", getattr(self.env, "current_state", None))
+                            setattr(self.env, "current_state", state)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 if (
                     self.agent.previous_state is not None
                     and self.agent.previous_action is not None

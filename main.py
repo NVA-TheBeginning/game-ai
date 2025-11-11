@@ -83,8 +83,12 @@ class Environment:
         self.previous_state: Optional[Dict[str, Any]] = None
 
     def update_state(self, state: Dict[str, Any]) -> None:
-        self.previous_state = self.current_state
-        self.current_state = state
+        try:
+            self.previous_state = self.current_state
+            self.current_state = state
+        except Exception:
+            self.previous_state = None
+            self.current_state = state
 
     def do(self, action: Dict[str, Any]) -> float:
         if self.previous_state is None or self.current_state is None:
@@ -92,7 +96,7 @@ class Environment:
         return self.calculate_reward(self.previous_state, self.current_state, action)
 
     def calculate_reward(
-        self,
+        self,  
         old_state: Dict[str, Any],
         new_state: Dict[str, Any],
         action: Optional[Dict[str, Any]],
@@ -157,40 +161,92 @@ class Environment:
 
 
 class Agent:
-    def __init__(
-        self,
-        env: Environment,
-        alpha: float = 0.1,
-        gamma: float = 0.95,
-        epsilon: float = 0.2,
-    ):
+    def __init__(self,env):
         self.env = env
-        self.alpha = alpha
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.qtable: Dict[str, Dict[str, float]] = {}
-        self.previous_state: Optional[Dict[str, Any]] = None
-        self.previous_action: Optional[Dict[str, Any]] = None
-        self.score = 0.0
-        self.history: List[float] = []
+        self.reward = 0
+        self.qtable = {}
+        self.score = None
+        self.alpha = 0.1
+        self.gamma = 0.95
+        self.epsilon = 0.2
 
-    def reset(self) -> None:
-        if self.score != 0:
-            self.history.append(self.score)
-        self.score = 0.0
         self.previous_state = None
         self.previous_action = None
 
+        self.reset()
+        self.history = []
 
-    def get_state(state: Dict[str, Any]) -> str:
-        in_spawn = bool(state.get("inSpawnPhase", False))
-        candidates = state.get("candidates") or {}
-        population = state.get("me", {}).get("population", 0.0) or 0.0
-        empty_count = len(candidates.get("emptyNeighbors") or [])
-        enemy_count = len(candidates.get("enemyNeighbors") or [])
-        rank = state.get("me", {}).get("rank", 0) or 0
-        conquest = int(state.get("me", {}).get("conquestPercent", 0) or 0)
-        return f"spawn:{in_spawn}|empty:{empty_count}|enemy:{enemy_count}|pop:{population:.2f}|rank:{rank}|conq:{conquest}"
+    def reset(self):
+        if self.score is not None:
+            self.history.append(self.score)
+        self.iterations = 0
+        self.score = 0
+        self.pos = getattr(self.env, "start", None)
+        self.state = self.get_state()
+
+    def get_state(self):
+        """Return a compact, safe tuple representing the bot's observable state.
+
+        Keeps the signature unchanged (no parameters). The method reads the
+        current state from `self.env.current_state` and returns a tuple:
+        (in_spawn, population, maxPopulation, troops, rank, conquestPercent, ownedCount, empty_count, enemy_count)
+
+        Missing or malformed values are represented as the string "N/A".
+        """
+        try:
+            s = getattr(self.env, "current_state", {}) or {}
+        except Exception:
+            s = {}
+
+        me = s.get("me") or {}
+        candidates = s.get("candidates") or {}
+
+        def safe_num(v):
+            """Return numeric value when possible, otherwise None.
+
+            - ints are preserved
+            - floats parsed from strings are returned as float
+            - integers represented as floats are converted to int
+            - non-numeric or missing values -> None
+            """
+            if v is None:
+                return None
+            try:
+                if isinstance(v, int):
+                    return v
+                f = float(v)
+                if abs(f - int(f)) < 1e-9:
+                    return int(f)
+                return f
+            except Exception:
+                return None
+
+        in_spawn = bool(s.get("inSpawnPhase", False))
+        population = safe_num(me.get("population"))
+        max_population = safe_num(me.get("maxPopulation"))
+        troops = safe_num(me.get("troops"))
+        rank = safe_num(me.get("rank"))
+        conquest = safe_num(me.get("conquestPercent"))
+        owned_count = safe_num(me.get("ownedCount"))
+
+        empty_count = len((candidates.get("emptyNeighbors") or []))
+        enemy_count = len((candidates.get("enemyNeighbors") or []))
+
+        state = (
+            in_spawn,
+            population,
+            max_population,
+            troops,
+            rank,
+            conquest,
+            owned_count,
+            empty_count,
+            enemy_count,
+        )
+
+        print(f"Current state: {state}")
+
+        return state
 
 
     def get_q_value(self, state_key: str, action_key: str) -> float:
@@ -250,7 +306,15 @@ class Agent:
         if self.previous_state is None or self.previous_action is None:
             return
 
-        prev_state_key = self.get_state(self.previous_state)
+        # Build the previous-state key without changing get_state's signature:
+        # temporarily set env.current_state to previous_state so get_state() reads it.
+        env_saved = getattr(self.env, "current_state", None)
+        try:
+            self.env.current_state = self.previous_state
+            prev_state_key = self.get_state()
+        finally:
+            # restore original env state
+            self.env.current_state = env_saved
         prev_action_key = get_action_key(self.previous_action)
         current_state_key = self.get_state()
         current_q = self.get_q_value(prev_state_key, prev_action_key)
