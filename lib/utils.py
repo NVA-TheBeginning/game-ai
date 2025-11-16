@@ -1,6 +1,6 @@
 import math
-import re
 import random
+import re
 from typing import Any, Dict, List, Optional
 
 # A small, self-contained set of helper functions that implement the heavy
@@ -49,9 +49,7 @@ def _key_to_vector(key: str) -> Optional[List[float]]:
                 data[k] = v
 
         in_spawn = (
-            1.0
-            if data.get("spawn", "False") in ("True", "1", "true", "1.0")
-            else 0.0
+            1.0 if data.get("spawn", "False") in ("True", "1", "true", "1.0") else 0.0
         )
         empty_count = float(re.sub(r"[^0-9.-]", "", data.get("empty", "0")) or 0)
         enemy_count = float(re.sub(r"[^0-9.-]", "", data.get("enemy", "0")) or 0)
@@ -85,7 +83,17 @@ def _key_to_vector(key: str) -> Optional[List[float]]:
             else 0.0
         )
 
-        return [in_spawn, empty_count, enemy_count, pop, troops, maxpop, conq, owned, rank]
+        return [
+            in_spawn,
+            empty_count,
+            enemy_count,
+            pop,
+            troops,
+            maxpop,
+            conq,
+            owned,
+            rank,
+        ]
     except Exception:
         return None
 
@@ -102,7 +110,9 @@ def get_q_value(agent, state_key: str, action_key: str) -> float:
 
 
 def best_action(agent, state: Dict[str, Any], possible_actions: List[Dict[str, Any]]):
-    state_key = agent._get_state_key(state) if hasattr(agent, "_get_state_key") else None
+    state_key = (
+        agent._get_state_key(state) if hasattr(agent, "_get_state_key") else None
+    )
     # fallback to building a key-like string if helper not present
     if state_key is None:
         # naive fallback: use str(state)
@@ -116,14 +126,21 @@ def best_action(agent, state: Dict[str, Any], possible_actions: List[Dict[str, A
             agent.qtable[state_key] = {}
 
         for action in possible_actions:
-            action_key = agent._get_action_key(action) if hasattr(agent, "_get_action_key") else str(action)
+            action_key = (
+                agent._get_action_key(action)
+                if hasattr(agent, "_get_action_key")
+                else str(action)
+            )
             if action_key not in agent.qtable[state_key]:
                 agent.qtable[state_key][action_key] = 0.0
 
     if random.random() < getattr(agent, "epsilon", 0.2):
         return random.choice(possible_actions)
 
-    possible_actions_keys = { (agent._get_action_key(a) if hasattr(agent, "_get_action_key") else str(a)) : a for a in possible_actions }
+    possible_actions_keys = {
+        (agent._get_action_key(a) if hasattr(agent, "_get_action_key") else str(a)): a
+        for a in possible_actions
+    }
 
     for action_key in possible_actions_keys:
         if action_key not in agent.qtable[state_key]:
@@ -143,9 +160,19 @@ def best_action(agent, state: Dict[str, Any], possible_actions: List[Dict[str, A
 
 
 def update(agent, state: Dict[str, Any], reward: float) -> None:
-    prev_state_key = agent._get_state_key(agent.previous_state) if hasattr(agent, "_get_state_key") else str(agent.previous_state)
-    prev_action_key = agent._get_action_key(agent.previous_action) if hasattr(agent, "_get_action_key") else str(agent.previous_action)
-    current_state_key = agent._get_state_key(state) if hasattr(agent, "_get_state_key") else str(state)
+    prev_state_key = (
+        agent._get_state_key(agent.previous_state)
+        if hasattr(agent, "_get_state_key")
+        else str(agent.previous_state)
+    )
+    prev_action_key = (
+        agent._get_action_key(agent.previous_action)
+        if hasattr(agent, "_get_action_key")
+        else str(agent.previous_action)
+    )
+    current_state_key = (
+        agent._get_state_key(state) if hasattr(agent, "_get_state_key") else str(state)
+    )
 
     current_q = get_q_value(agent, prev_state_key, prev_action_key)
 
@@ -157,7 +184,9 @@ def update(agent, state: Dict[str, Any], reward: float) -> None:
         if closest is not None and closest in agent.qtable and agent.qtable[closest]:
             max_next_q = max(agent.qtable[closest].values())
 
-    delta = getattr(agent, "alpha", 0.1) * (reward + getattr(agent, "gamma", 0.95) * max_next_q - current_q)
+    delta = getattr(agent, "alpha", 0.1) * (
+        reward + getattr(agent, "gamma", 0.95) * max_next_q - current_q
+    )
 
     if prev_state_key not in agent.qtable:
         closest = find_closest_state_by_key(agent, prev_state_key)

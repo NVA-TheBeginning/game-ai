@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict
+
 from websockets.asyncio.server import ServerConnection
 
 
@@ -25,7 +26,6 @@ class ServerInterface:
         except Exception:
             print("Bot connected; failed reading hello message")
 
-
         last_tick = None
         spawn_sent = False
         try:
@@ -43,14 +43,20 @@ class ServerInterface:
                     continue
                 last_tick = tick
                 try:
-                    if hasattr(self.env, "update_state") and callable(getattr(self.env, "update_state")):
+                    if hasattr(self.env, "update_state") and callable(
+                        getattr(self.env, "update_state")
+                    ):
                         self.env.update_state(state)
                     elif isinstance(self.env, dict):
                         self.env["previous_state"] = self.env.get("current_state")
                         self.env["current_state"] = state
                     else:
                         try:
-                            setattr(self.env, "previous_state", getattr(self.env, "current_state", None))
+                            setattr(
+                                self.env,
+                                "previous_state",
+                                getattr(self.env, "current_state", None),
+                            )
                             setattr(self.env, "current_state", state)
                         except Exception:
                             pass

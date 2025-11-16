@@ -2,6 +2,7 @@ import asyncio
 import json
 import random
 from typing import Any, Dict, Optional
+
 import websockets
 
 PRUNE_MAX_TARGETS = 50
@@ -54,7 +55,9 @@ class BotConnection:
         self.total_score = 0.0
         self.prev_players_map: Dict[int, Dict[str, Any]] = {}
 
-    async def send_intent(self, ws, intent: Dict[str, Any], log_prefix: str = "INTENT") -> None:
+    async def send_intent(
+        self, ws, intent: Dict[str, Any], log_prefix: str = "INTENT"
+    ) -> None:
         try:
             payload = json.dumps(intent, separators=(",", ":"))
         except Exception:
@@ -66,7 +69,9 @@ class BotConnection:
 
     def _safe_update_env(self, env_obj: Any, state: Dict[str, Any]) -> None:
         try:
-            if hasattr(env_obj, "update_state") and callable(getattr(env_obj, "update_state")):
+            if hasattr(env_obj, "update_state") and callable(
+                getattr(env_obj, "update_state")
+            ):
                 env_obj.update_state(state)
                 return
         except Exception:
@@ -95,7 +100,12 @@ class BotConnection:
         empty_neighbors = (state.get("candidates") or {}).get("emptyNeighbors") or []
         if empty_neighbors:
             choice = random.choice(empty_neighbors[:PRUNE_MAX_TARGETS])
-            return {"type": "spawn", "x": choice.get("x"), "y": choice.get("y"), "used_server": True}
+            return {
+                "type": "spawn",
+                "x": choice.get("x"),
+                "y": choice.get("y"),
+                "used_server": True,
+            }
 
         mw = (state.get("map") or {}).get("width") or 0
         mh = (state.get("map") or {}).get("height") or 0
@@ -106,7 +116,9 @@ class BotConnection:
 
         return None
 
-    async def send_action_intent(self, ws, action: Dict[str, Any], state: Dict[str, Any]) -> None:
+    async def send_action_intent(
+        self, ws, action: Dict[str, Any], state: Dict[str, Any]
+    ) -> None:
         if action.get("type") == "spawn":
             if self.player_id is None:
                 self.player_id = make_id(8)
@@ -128,10 +140,14 @@ class BotConnection:
             await self.send_intent(ws, intent_msg, "SPAWN")
 
         elif action.get("type") == "attack":
-            players_map = {p.get("smallID"): p.get("playerID") for p in state.get("players", [])}
+            players_map = {
+                p.get("smallID"): p.get("playerID") for p in state.get("players", [])
+            }
             candidates = state.get("candidates", {})
             target = None
-            for e in candidates.get("enemyNeighbors", []) + candidates.get("emptyNeighbors", []):
+            for e in candidates.get("enemyNeighbors", []) + candidates.get(
+                "emptyNeighbors", []
+            ):
                 if e.get("x") == action.get("x") and e.get("y") == action.get("y"):
                     target = e
                     break
@@ -178,10 +194,14 @@ class BotConnection:
                 def _normalize(a: Dict[str, Any]) -> Optional[tuple]:
                     try:
                         attacker = (
-                            a.get("attackerID") if a.get("attackerID") is not None else a.get("attackerSmallID")
+                            a.get("attackerID")
+                            if a.get("attackerID") is not None
+                            else a.get("attackerSmallID")
                         )
                         target = (
-                            a.get("targetID") if a.get("targetID") is not None else a.get("targetSmallID")
+                            a.get("targetID")
+                            if a.get("targetID") is not None
+                            else a.get("targetSmallID")
                         )
                         troops = a.get("troops")
                         return (
@@ -200,13 +220,17 @@ class BotConnection:
                         troops_n = key[2]
                         attacker = players_map.get(attacker_id) or {}
                         attacker_name = (
-                            attacker.get("displayName") or attacker.get("name") or "<unknown>"
+                            attacker.get("displayName")
+                            or attacker.get("name")
+                            or "<unknown>"
                         )
                         print(
                             f"[tick {tick}] INCOMING attack from {attacker_name}: {troops_n} troops"
                         )
 
-                prev_out_keys = set(filter(None, (_normalize(a) for a in prev_outgoing)))
+                prev_out_keys = set(
+                    filter(None, (_normalize(a) for a in prev_outgoing))
+                )
                 for a in curr_outgoing:
                     key = _normalize(a)
                     if key and key not in prev_out_keys:
@@ -214,7 +238,9 @@ class BotConnection:
                         troops_n = key[2]
                         target = players_map.get(target_id) or {}
                         target_name = (
-                            target.get("displayName") or target.get("name") or "<unknown>"
+                            target.get("displayName")
+                            or target.get("name")
+                            or "<unknown>"
                         )
                         print(
                             f"[tick {tick}] OUTGOING attack to {target_name}: {troops_n} troops"
@@ -265,7 +291,11 @@ class BotConnection:
                 }
                 await self.send_intent(ws, spawn_intent, "AUTO-SPAWN")
                 self.agent.previous_state = state
-                self.agent.previous_action = {"type": "spawn", "x": auto.get("x"), "y": auto.get("y")}
+                self.agent.previous_action = {
+                    "type": "spawn",
+                    "x": auto.get("x"),
+                    "y": auto.get("y"),
+                }
                 self.last_in_spawn = True
                 return
 
