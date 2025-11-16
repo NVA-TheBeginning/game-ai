@@ -65,14 +65,6 @@ class BotConnection:
             print(f"Failed to send {log_prefix}:", e)
 
     def _safe_update_env(self, env_obj: Any, state: Dict[str, Any]) -> None:
-        """Try to update provided env-like object with new state.
-
-        Supports:
-        - objects exposing update_state(state)
-        - objects with attributes `current_state`/`previous_state`
-        - plain dicts used as state storage
-        Falls back silently if none apply.
-        """
         try:
             if hasattr(env_obj, "update_state") and callable(getattr(env_obj, "update_state")):
                 env_obj.update_state(state)
@@ -80,7 +72,6 @@ class BotConnection:
         except Exception:
             pass
 
-        # If it's a mapping (dict-like)
         try:
             if isinstance(env_obj, dict):
                 env_obj["previous_state"] = env_obj.get("current_state")
@@ -89,7 +80,6 @@ class BotConnection:
         except Exception:
             pass
 
-        # Try attribute assignment as last resort
         try:
             prev = getattr(env_obj, "current_state", None)
             try:
@@ -281,11 +271,9 @@ class BotConnection:
 
         self.last_in_spawn = in_spawn
 
-        # update env state using a safe helper in case env is a plain dict or lacks update_state
         try:
             self._safe_update_env(self.env, state)
         except Exception:
-            # defensive: fallback to best-effort assignments
             try:
                 self.env.previous_state = getattr(self.env, "current_state", None)
                 self.env.current_state = state

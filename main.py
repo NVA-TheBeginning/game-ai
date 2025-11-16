@@ -1,20 +1,18 @@
 import asyncio
-import json
-import os
+import math
 import pickle
 import random
 import string
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from websockets.asyncio.server import ServerConnection, serve
-import websockets
+
+from websockets.asyncio.server import serve
 
 from lib.bot_connection import BotConnection
 from lib.server_interface import ServerInterface
 
-
-MODE = "bot"
+MODE = "bot"  # "bot" or "interface"
 
 
 SERVER_WS = "ws://localhost:3000/bot"
@@ -34,8 +32,8 @@ PRINT_INTERVAL = 20
 
 REWARD_TERRITORY_GAIN = 10.0
 REWARD_TERRITORY_LOSS = -10.0
-REWARD_SPAWN_SUCCESS = 50.0
-REWARD_MISSED_SPAWN = -50.0
+REWARD_SPAWN_SUCCESS = 150.0
+REWARD_MISSED_SPAWN = -150.0
 REWARD_SMALL_STEP = -0.1
 REWARD_WIN = 100.0
 REWARD_LOST = -100.0
@@ -83,12 +81,8 @@ class Environment:
         self.previous_state: Optional[Dict[str, Any]] = None
 
     def update_state(self, state: Dict[str, Any]) -> None:
-        try:
-            self.previous_state = self.current_state
-            self.current_state = state
-        except Exception:
-            self.previous_state = None
-            self.current_state = state
+        self.previous_state = self.current_state
+        self.current_state = state
 
     def do(self, action: Dict[str, Any]) -> float:
         if self.previous_state is None or self.current_state is None:
@@ -96,39 +90,27 @@ class Environment:
         return self.calculate_reward(self.previous_state, self.current_state, action)
 
     def calculate_reward(
-        self,  
+        self,
         old_state: Dict[str, Any],
         new_state: Dict[str, Any],
         action: Optional[Dict[str, Any]],
     ) -> float:
         reward = REWARD_SMALL_STEP
 
-        try:
-            prev_small = old_state.get("me", {}).get("smallID")
-            new_small = new_state.get("me", {}).get("smallID")
-            if (
-                action
-                and action.get("type") == "spawn"
-                and (not prev_small)
-                and new_small
-            ):
-                reward += REWARD_SPAWN_SUCCESS
-                print(f"Reward: spawn success detected -> +{REWARD_SPAWN_SUCCESS}")
-        except Exception:
-            pass
+        prev_small = (old_state or {}).get("me", {}).get("smallID")
+        new_small = (new_state or {}).get("me", {}).get("smallID")
+        if action and action.get("type") == "spawn" and (not prev_small) and new_small:
+            reward += REWARD_SPAWN_SUCCESS
+            print(f"Reward: spawn success detected -> +{REWARD_SPAWN_SUCCESS}")
 
-        try:
-            prev_in_spawn = bool(old_state.get("inSpawnPhase", False))
-            prev_candidates = (old_state.get("candidates") or {}).get(
-                "emptyNeighbors"
-            ) or []
-            if prev_in_spawn and len(prev_candidates) > 0:
-                if not action or action.get("type") != "spawn":
-                    reward += REWARD_MISSED_SPAWN
-                    
-        except Exception:
-            pass
-        
+        prev_in_spawn = bool((old_state or {}).get("inSpawnPhase", False))
+        prev_candidates = ((old_state or {}).get("candidates") or {}).get(
+            "emptyNeighbors"
+        ) or []
+        if prev_in_spawn and len(prev_candidates) > 0:
+            if not action or action.get("type") != "spawn":
+                reward += REWARD_MISSED_SPAWN
+
         return reward
 
     def get_possible_actions(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -161,7 +143,7 @@ class Environment:
 
 
 class Agent:
-    def __init__(self,env):
+    def __init__(self, env):
         self.env = env
         self.reward = 0
         self.qtable = {}
@@ -185,30 +167,12 @@ class Agent:
         self.state = self.get_state()
 
     def get_state(self):
-        """Return a compact, safe tuple representing the bot's observable state.
-
-        Keeps the signature unchanged (no parameters). The method reads the
-        current state from `self.env.current_state` and returns a tuple:
-        (in_spawn, population, maxPopulation, troops, rank, conquestPercent, ownedCount, empty_count, enemy_count)
-
-        Missing or malformed values are represented as the string "N/A".
-        """
-        try:
-            s = getattr(self.env, "current_state", {}) or {}
-        except Exception:
-            s = {}
+        s = getattr(self.env, "current_state", {}) or {}
 
         me = s.get("me") or {}
         candidates = s.get("candidates") or {}
 
         def safe_num(v):
-            """Return numeric value when possible, otherwise None.
-
-            - ints are preserved
-            - floats parsed from strings are returned as float
-            - integers represented as floats are converted to int
-            - non-numeric or missing values -> None
-            """
             if v is None:
                 return None
             try:
@@ -222,12 +186,12 @@ class Agent:
                 return None
 
         in_spawn = bool(s.get("inSpawnPhase", False))
-        population = safe_num(me.get("population"))
-        max_population = safe_num(me.get("maxPopulation"))
-        troops = safe_num(me.get("troops"))
+        population = math.floor(safe_num(me.get("population")) or 0)
+        max_population = math.floor(safe_num(me.get("maxPopulation")) or 0)
+        troops = math.floor(safe_num(me.get("troops")) or 0)
         rank = safe_num(me.get("rank"))
-        conquest = safe_num(me.get("conquestPercent"))
-        owned_count = safe_num(me.get("ownedCount"))
+        conquest = math.floor(safe_num(me.get("conquestPercent")) or 0)
+        owned_count = math.floor(safe_num(me.get("ownedCount")) or 0)
 
         empty_count = len((candidates.get("emptyNeighbors") or []))
         enemy_count = len((candidates.get("enemyNeighbors") or []))
@@ -248,12 +212,10 @@ class Agent:
 
         return state
 
-
     def get_q_value(self, state_key: str, action_key: str) -> float:
         if state_key not in self.qtable:
             return 0.0
         return self.qtable[state_key].get(action_key, 0.0)
-    
 
     def best_action(
         self, state: Dict[str, Any], possible_actions: List[Dict[str, Any]]
@@ -306,8 +268,6 @@ class Agent:
         if self.previous_state is None or self.previous_action is None:
             return
 
-        # Build the previous-state key without changing get_state's signature:
-        # temporarily set env.current_state to previous_state so get_state() reads it.
         env_saved = getattr(self.env, "current_state", None)
         try:
             self.env.current_state = self.previous_state
@@ -352,29 +312,20 @@ async def run_main() -> None:
     env = Environment()
     agent = Agent(env)
 
-    try:
-        agent.load(QTABLE_FILE)
-    except Exception:
-        pass
+    agent.load(QTABLE_FILE)
 
     if MODE == "bot":
         bot = BotConnection(agent, env)
-        try:
-            await bot.run()
-        except asyncio.CancelledError:
-            pass
-        except KeyboardInterrupt:
-            print("Interrupted, saving qtable...")
-            agent.save()
-    else:
+        await bot.run()
+
+    if MODE == "interface":
         server_iface = ServerInterface(agent, env)
         print(f"Starting interface websocket server on 0.0.0.0:{INTERFACE_PORT}")
         async with serve(server_iface.handle_connection, "0.0.0.0", INTERFACE_PORT):
-            try:
-                await asyncio.Future()
-            except KeyboardInterrupt:
-                print("Interface interrupted, saving qtable...")
-                agent.save()
+            await asyncio.Future()
+    else:
+        print(f"Unknown MODE '{MODE}', exiting.")
+        exit(1)
 
 
 if __name__ == "__main__":
@@ -382,10 +333,6 @@ if __name__ == "__main__":
         asyncio.run(run_main())
     except KeyboardInterrupt:
         print("Shutting down, saving qtable...")
-
-        try:
-            a = Agent(Environment())
-            a.load(QTABLE_FILE)
-            a.save(QTABLE_FILE)
-        except Exception:
-            pass
+        a = Agent(Environment())
+        a.load(QTABLE_FILE)
+        a.save(QTABLE_FILE)

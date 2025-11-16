@@ -25,7 +25,9 @@ class ServerInterface:
         except Exception:
             print("Bot connected; failed reading hello message")
 
+
         last_tick = None
+        spawn_sent = False
         try:
             async for message in ws:
                 try:
@@ -40,7 +42,6 @@ class ServerInterface:
                 if tick == last_tick:
                     continue
                 last_tick = tick
-                # update env state defensively (support objects, dicts, or attribute-style env)
                 try:
                     if hasattr(self.env, "update_state") and callable(getattr(self.env, "update_state")):
                         self.env.update_state(state)
@@ -48,7 +49,6 @@ class ServerInterface:
                         self.env["previous_state"] = self.env.get("current_state")
                         self.env["current_state"] = state
                     else:
-                        # try attribute assignment
                         try:
                             setattr(self.env, "previous_state", getattr(self.env, "current_state", None))
                             setattr(self.env, "current_state", state)
@@ -84,6 +84,15 @@ class ServerInterface:
                         self.agent.save()
                     except Exception:
                         pass
+
+                try:
+                    if (not spawn_sent) and tick == 1:
+                        spawn_intent = {"type": "spawn", "x": -1, "y": -1}
+                        await ws.send(json.dumps(spawn_intent))
+                        print("Sent spawn intent to bot:", spawn_intent)
+                        spawn_sent = True
+                except Exception:
+                    print("Failed sending spawn intent to bot")
         finally:
             print("\nConnection closed, saving Q-table...")
             try:
