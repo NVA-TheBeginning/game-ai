@@ -160,10 +160,7 @@ class Agent:
     def reset(self):
         if self.score is not None:
             self.history.append(self.score)
-        self.iterations = 0
         self.score = 0
-        self.pos = getattr(self.env, "start", None)
-        self.state = self.get_state()
 
     def get_state(self):
         s = getattr(self.env, "current_state", {}) or {}
