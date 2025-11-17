@@ -58,8 +58,8 @@ class ServerInterface:
                                 getattr(self.env, "current_state", None),
                             )
                             setattr(self.env, "current_state", state)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"Failed to set previous/current state: {e}")
                 except Exception:
                     pass
                 if (
