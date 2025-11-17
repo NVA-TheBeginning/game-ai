@@ -145,7 +145,6 @@ class Environment:
 class Agent:
     def __init__(self, env):
         self.env = env
-        self.reward = 0
         self.qtable = {}
         self.score = None
         self.alpha = 0.1
