@@ -62,10 +62,6 @@ def safe_num(v: Optional[float], fmt: str = "{:.2f}") -> str:
             return str(v)
 
 
-def arg_max(table: Dict[str, float]) -> str:
-    return max(table, key=table.get)
-
-
 def get_action_key(action: Dict[str, Any]) -> str:
     action_type = action.get("type")
     if action_type == "spawn":
