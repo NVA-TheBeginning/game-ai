@@ -80,11 +80,6 @@ class Environment:
         self.previous_state = self.current_state
         self.current_state = state
 
-    def do(self, action: Dict[str, Any]) -> float:
-        if self.previous_state is None or self.current_state is None:
-            return 0.0
-        return self.calculate_reward(self.previous_state, self.current_state, action)
-
     def calculate_reward(
         self,
         old_state: Dict[str, Any],
