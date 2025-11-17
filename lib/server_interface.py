@@ -103,5 +103,5 @@ class ServerInterface:
             print("\nConnection closed, saving Q-table...")
             try:
                 self.agent.save()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Exception occurred while saving agent in finally block: {e}")
