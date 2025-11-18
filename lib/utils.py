@@ -9,6 +9,38 @@ from typing import Any, Dict, List, Optional
 # `alpha`, `gamma`, etc.). Keeping them here avoids circular imports.
 
 
+def format_number(v: Optional[float], fmt: str = "{:.2f}") -> str:
+    """
+    Format a number for display purposes with fallback handling.
+    """
+    if v is None:
+        return "N/A"
+    try:
+        return fmt.format(v)
+    except Exception:
+        try:
+            return str(float(v))
+        except Exception:
+            return str(v)
+
+
+def normalize_number(v):
+    """
+    Normalize a value to int or float for state processing.
+    """
+    if v is None:
+        return None
+    try:
+        if isinstance(v, int):
+            return v
+        f = float(v)
+        if abs(f - int(f)) < 1e-9:
+            return int(f)
+        return f
+    except Exception:
+        return None
+
+
 def _state_to_vector(state: Dict[str, Any]) -> Optional[List[float]]:
     try:
         if not state:

@@ -3,8 +3,9 @@ import json
 import random
 import string
 from typing import Any, Dict, Optional
-
+from lib.utils import format_number
 import websockets
+
 
 PRUNE_MAX_TARGETS = 50
 ATTACK_RATIOS = [0.20, 0.40, 0.60, 0.80]
@@ -18,18 +19,6 @@ SERVER_WS = "ws://localhost:3000/bot"
 def make_id(length: int = 8) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(random.choice(alphabet) for _ in range(length))
-
-
-def safe_num(v: Optional[float], fmt: str = "{:.2f}") -> str:
-    if v is None:
-        return "N/A"
-    try:
-        return fmt.format(v)
-    except Exception:
-        try:
-            return str(float(v))
-        except Exception:
-            return str(v)
 
 
 def get_action_key(action: Dict[str, Any]) -> str:
@@ -238,11 +227,14 @@ class BotConnection:
                         target_id = key[1]
                         troops_n = key[2]
                         target = players_map.get(target_id) or {}
-                        target_name = (
-                            target.get("displayName")
-                            or target.get("name")
-                            or "<unknown>"
-                        )
+                        if target_id not in players_map:
+                            target_name = "empty cell"
+                        else:
+                            target_name = (
+                                target.get("displayName")
+                                or target.get("name")
+                                or f"player {target_id}"
+                            )
                         print(
                             f"[tick {tick}] OUTGOING attack to {target_name}: {troops_n} troops"
                         )
@@ -324,7 +316,7 @@ class BotConnection:
             ):
                 prev_action_str = get_action_key(self.agent.previous_action)
                 print(
-                    f"Tick {tick}: Action={prev_action_str}, TotalScore={safe_num(self.total_score)}, QStates={len(self.agent.qtable)}"
+                    f"Tick {tick}: Action={prev_action_str}, TotalScore={format_number(self.total_score)}, QStates={len(self.agent.qtable)}"
                 )
 
         possible_actions = self.env.get_possible_actions(state)

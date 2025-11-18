@@ -10,8 +10,11 @@ from websockets.asyncio.server import serve
 
 from lib.bot_connection import BotConnection
 from lib.server_interface import ServerInterface
+from lib.utils import normalize_number
 
+# TODO: handle these settings via command-line args or config file
 MODE = "bot"  # "bot" or "interface"
+DEBUG_MODE = True
 
 
 SERVER_WS = "ws://localhost:3000/bot"
@@ -44,25 +47,13 @@ class Action(Enum):
     NONE = "none"
 
 
-def safe_num(v: Optional[float], fmt: str = "{:.2f}") -> str:
-    if v is None:
-        return "N/A"
-    try:
-        return fmt.format(v)
-    except Exception:
-        try:
-            return str(float(v))
-        except Exception:
-            return str(v)
-
-
 def get_action_key(action: Dict[str, Any]) -> str:
     action_type = action.get("type")
-    if action_type == "spawn":
+    if action_type == Action.SPAWN.value:
         return f"spawn:{action.get('x')},{action.get('y')}"
-    elif action_type == "attack":
+    elif action_type == Action.ATTACK.value:
         return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
-    return "none"
+    return Action.NONE.value
 
 
 class Environment:
@@ -84,7 +75,12 @@ class Environment:
 
         prev_small = (old_state or {}).get("me", {}).get("smallID")
         new_small = (new_state or {}).get("me", {}).get("smallID")
-        if action and action.get("type") == "spawn" and (not prev_small) and new_small:
+        if (
+            action
+            and action.get("type") == Action.SPAWN.value
+            and (not prev_small)
+            and new_small
+        ):
             reward += REWARD_SPAWN_SUCCESS
             print(f"Reward: spawn success detected -> +{REWARD_SPAWN_SUCCESS}")
 
@@ -93,7 +89,7 @@ class Environment:
             "emptyNeighbors"
         ) or []
         if prev_in_spawn and len(prev_candidates) > 0:
-            if not action or action.get("type") != "spawn":
+            if not action or action.get("type") != Action.SPAWN.value:
                 reward += REWARD_MISSED_SPAWN
 
         return reward
@@ -139,8 +135,8 @@ class Agent:
         self.previous_state = None
         self.previous_action = None
 
-        self.reset()
         self.history = []
+        self.reset()
 
     def reset(self):
         if self.score is not None:
@@ -153,26 +149,13 @@ class Agent:
         me = s.get("me") or {}
         candidates = s.get("candidates") or {}
 
-        def safe_num(v):
-            if v is None:
-                return None
-            try:
-                if isinstance(v, int):
-                    return v
-                f = float(v)
-                if abs(f - int(f)) < 1e-9:
-                    return int(f)
-                return f
-            except Exception:
-                return None
-
         in_spawn = bool(s.get("inSpawnPhase", False))
-        population = math.floor(safe_num(me.get("population")) or 0)
-        max_population = math.floor(safe_num(me.get("maxPopulation")) or 0)
-        troops = math.floor(safe_num(me.get("troops")) or 0)
-        rank = safe_num(me.get("rank"))
-        conquest = math.floor(safe_num(me.get("conquestPercent")) or 0)
-        owned_count = math.floor(safe_num(me.get("ownedCount")) or 0)
+        population = math.floor(normalize_number(me.get("population")) or 0)
+        max_population = math.floor(normalize_number(me.get("maxPopulation")) or 0)
+        troops = math.floor(normalize_number(me.get("troops")) or 0)
+        rank = normalize_number(me.get("rank"))
+        conquest = math.floor(normalize_number(me.get("conquestPercent")) or 0)
+        owned_count = math.floor(normalize_number(me.get("ownedCount")) or 0)
 
         empty_count = len((candidates.get("emptyNeighbors") or []))
         enemy_count = len((candidates.get("enemyNeighbors") or []))
@@ -189,7 +172,8 @@ class Agent:
             enemy_count,
         )
 
-        print(f"Current state: {state}")
+        if DEBUG_MODE:
+            print(f"Current state: {state}")
 
         return state
 
@@ -298,8 +282,7 @@ async def run_main() -> None:
     if MODE == "bot":
         bot = BotConnection(agent, env)
         await bot.run()
-
-    if MODE == "interface":
+    elif MODE == "interface":
         server_iface = ServerInterface(agent, env)
         print(f"Starting interface websocket server on 0.0.0.0:{INTERFACE_PORT}")
         async with serve(server_iface.handle_connection, "0.0.0.0", INTERFACE_PORT):
