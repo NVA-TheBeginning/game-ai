@@ -2,7 +2,6 @@ import asyncio
 import math
 import pickle
 import random
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -21,22 +20,7 @@ from lib.constants import (
     REWARD_SPAWN_SUCCESS,
 )
 from lib.server_interface import ServerInterface
-from lib.utils import normalize_number
-
-
-class Action(Enum):
-    SPAWN = "spawn"
-    ATTACK = "attack"
-    NONE = "none"
-
-
-def get_action_key(action: Dict[str, Any]) -> str:
-    action_type = action.get("type")
-    if action_type == Action.SPAWN.value:
-        return f"spawn:{action.get('x')},{action.get('y')}"
-    elif action_type == Action.ATTACK.value:
-        return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
-    return Action.NONE.value
+from lib.utils import Action, get_action_key, normalize_number
 
 
 class Environment:
@@ -86,21 +70,28 @@ class Environment:
             if empty:
                 actions: List[Dict[str, Any]] = []
                 for cell in empty[:PRUNE_MAX_TARGETS]:
-                    actions.append({"type": "spawn", "x": cell["x"], "y": cell["y"]})
+                    actions.append(
+                        {"type": Action.SPAWN.value, "x": cell["x"], "y": cell["y"]}
+                    )
                 return actions
             else:
-                return [{"type": "none"}]
+                return [{"type": Action.NONE.value}]
 
         targets = (enemy or []) + (empty or [])
         if not targets:
-            return [{"type": "none"}]
+            return [{"type": Action.NONE.value}]
 
-        actions = [{"type": "none"}]
+        actions = [{"type": Action.NONE.value}]
         prioritized = (enemy or []) + (empty or [])
         for cell in prioritized[:PRUNE_MAX_TARGETS]:
             for ratio in ATTACK_RATIOS:
                 actions.append(
-                    {"type": "attack", "x": cell["x"], "y": cell["y"], "ratio": ratio}
+                    {
+                        "type": Action.ATTACK.value,
+                        "x": cell["x"],
+                        "y": cell["y"],
+                        "ratio": ratio,
+                    }
                 )
 
         return actions

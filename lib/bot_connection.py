@@ -14,21 +14,12 @@ from lib.constants import (
     PRUNE_MAX_TARGETS,
     SERVER_WS,
 )
-from lib.utils import format_number
+from lib.utils import Action, format_number, get_action_key
 
 
 def make_id(length: int = 8) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(random.choice(alphabet) for _ in range(length))
-
-
-def get_action_key(action: Dict[str, Any]) -> str:
-    action_type = action.get("type")
-    if action_type == "spawn":
-        return f"spawn:{action.get('x')},{action.get('y')}"
-    elif action_type == "attack":
-        return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
-    return "none"
 
 
 class BotConnection:
@@ -92,7 +83,7 @@ class BotConnection:
         if empty_neighbors:
             choice = random.choice(empty_neighbors[:PRUNE_MAX_TARGETS])
             return {
-                "type": "spawn",
+                "type": Action.SPAWN.value,
                 "x": choice.get("x"),
                 "y": choice.get("y"),
                 "used_server": True,
@@ -103,14 +94,14 @@ class BotConnection:
         if mw and mh:
             tx = random.randrange(0, mw)
             ty = random.randrange(0, mh)
-            return {"type": "spawn", "x": tx, "y": ty, "used_server": False}
+            return {"type": Action.SPAWN.value, "x": tx, "y": ty, "used_server": False}
 
         return None
 
     async def send_action_intent(
         self, ws, action: Dict[str, Any], state: Dict[str, Any]
     ) -> None:
-        if action.get("type") == "spawn":
+        if action.get("type") == Action.SPAWN.value:
             if self.player_id is None:
                 self.player_id = make_id(8)
             intent_msg = {
@@ -118,7 +109,7 @@ class BotConnection:
                 "clientID": self.client_id,
                 "gameID": self.current_game_id,
                 "intent": {
-                    "type": "spawn",
+                    "type": Action.SPAWN.value,
                     "clientID": self.client_id,
                     "playerID": self.player_id,
                     "flag": None,
@@ -130,7 +121,7 @@ class BotConnection:
             }
             await self.send_intent(ws, intent_msg, "SPAWN")
 
-        elif action.get("type") == "attack":
+        elif action.get("type") == Action.ATTACK.value:
             players_map = {
                 p.get("smallID"): p.get("playerID") for p in state.get("players", [])
             }
@@ -156,7 +147,7 @@ class BotConnection:
                 "clientID": self.client_id,
                 "gameID": self.current_game_id,
                 "intent": {
-                    "type": "attack",
+                    "type": Action.ATTACK.value,
                     "clientID": self.client_id,
                     "attackerID": self.player_id,
                     "targetID": target_player_id,
@@ -246,7 +237,7 @@ class BotConnection:
 
     async def process_state_tick(self, ws, state: Dict[str, Any]) -> None:
         tick = state.get("tick")
-        if tick == self.last_tick:
+        if not isinstance(tick, int) or tick == self.last_tick:
             return
         self.last_tick = tick
 
@@ -286,7 +277,7 @@ class BotConnection:
                 await self.send_intent(ws, spawn_intent, "AUTO-SPAWN")
                 self.agent.previous_state = state
                 self.agent.previous_action = {
-                    "type": "spawn",
+                    "type": Action.SPAWN.value,
                     "x": auto.get("x"),
                     "y": auto.get("y"),
                 }
@@ -324,7 +315,7 @@ class BotConnection:
         action = self.agent.best_action(state, possible_actions)
         self.agent.epsilon = max(EPSILON_MIN, self.agent.epsilon * EPSILON_DECAY)
 
-        if action is not None and action.get("type") != "none":
+        if action is not None and action.get("type") != Action.NONE.value:
             await self.send_action_intent(ws, action, state)
             self.agent.previous_state = state
             self.agent.previous_action = action

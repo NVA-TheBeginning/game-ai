@@ -1,16 +1,8 @@
 import json
-from typing import Any, Dict
 
 from websockets.asyncio.server import ServerConnection
 
-
-def get_action_key(action: Dict[str, Any]) -> str:
-    action_type = action.get("type")
-    if action_type == "spawn":
-        return f"spawn:{action.get('x')},{action.get('y')}"
-    elif action_type == "attack":
-        return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
-    return "none"
+from lib.utils import Action, get_action_key
 
 
 class ServerInterface:
@@ -78,7 +70,7 @@ class ServerInterface:
                 possible_actions = self.env.get_possible_actions(state)
                 action = self.agent.best_action(state, possible_actions)
                 if action is not None:
-                    if action.get("type") != "none":
+                    if action.get("type") != Action.NONE.value:
                         await ws.send(json.dumps(action))
                     else:
                         print(f"Tick {tick}: Agent chose to do nothing")
@@ -93,7 +85,7 @@ class ServerInterface:
 
                 try:
                     if (not spawn_sent) and tick == 1:
-                        spawn_intent = {"type": "spawn", "x": -1, "y": -1}
+                        spawn_intent = {"type": Action.SPAWN.value, "x": -1, "y": -1}
                         await ws.send(json.dumps(spawn_intent))
                         print("Sent spawn intent to bot:", spawn_intent)
                         spawn_sent = True
