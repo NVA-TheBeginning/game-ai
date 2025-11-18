@@ -2,7 +2,6 @@ import asyncio
 import math
 import pickle
 import random
-import string
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -43,11 +42,6 @@ class Action(Enum):
     SPAWN = "spawn"
     ATTACK = "attack"
     NONE = "none"
-
-
-def make_id(length: int = 8) -> str:
-    alphabet = string.ascii_letters + string.digits
-    return "".join(random.choice(alphabet) for _ in range(length))
 
 
 def safe_num(v: Optional[float], fmt: str = "{:.2f}") -> str:

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import string
 from typing import Any, Dict, Optional
 
 import websockets
@@ -15,7 +16,7 @@ SERVER_WS = "ws://localhost:3000/bot"
 
 
 def make_id(length: int = 8) -> str:
-    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    alphabet = string.ascii_letters + string.digits
     return "".join(random.choice(alphabet) for _ in range(length))
 
 
