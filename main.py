@@ -1,262 +1,276 @@
 import asyncio
-import json
+import math
 import pickle
 import random
 from pathlib import Path
-from typing import Any, Dict
-from websockets.asyncio.server import ServerConnection, serve
+from typing import Any, Dict, List, Optional
+
+from websockets.asyncio.server import serve
+
+from lib.bot_connection import BotConnection
+from lib.constants import (
+    ATTACK_RATIOS,
+    DEBUG_MODE,
+    INTERFACE_PORT,
+    MODE,
+    PRUNE_MAX_TARGETS,
+    QTABLE_FILE,
+    REWARD_MISSED_SPAWN,
+    REWARD_SMALL_STEP,
+    REWARD_SPAWN_SUCCESS,
+)
+from lib.server_interface import ServerInterface
+from lib.utils import Action, get_action_key, normalize_number
 
 
-PORT = 8765
-QTABLE_FILE = "qtable.pkl"
+class Environment:
+    def __init__(self):
+        self.current_state: Optional[Dict[str, Any]] = None
+        self.previous_state: Optional[Dict[str, Any]] = None
 
-# Reward constants
-REWARD_CAPTURE_ENEMY = 10.0
-REWARD_CAPTURE_EMPTY = 5.0
-REWARD_FAILED_ATTACK = -5.0
-REWARD_TERRITORY_GAIN = 2.0
-REWARD_TERRITORY_LOSS = -2.0
-REWARD_SMALL_STEP = -0.1
+    def update_state(self, state: Dict[str, Any]) -> None:
+        self.previous_state = self.current_state
+        self.current_state = state
 
+    def calculate_reward(
+        self,
+        old_state: Dict[str, Any],
+        new_state: Dict[str, Any],
+        action: Optional[Dict[str, Any]],
+    ) -> float:
+        reward = REWARD_SMALL_STEP
 
-def arg_max(table: Dict[str, float]) -> str:
-    return max(table, key=table.get)
+        prev_small = (old_state or {}).get("me", {}).get("smallID")
+        new_small = (new_state or {}).get("me", {}).get("smallID")
+        if (
+            action
+            and action.get("type") == Action.SPAWN.value
+            and (not prev_small)
+            and new_small
+        ):
+            reward += REWARD_SPAWN_SUCCESS
+            print(f"Reward: spawn success detected -> +{REWARD_SPAWN_SUCCESS}")
 
+        prev_in_spawn = bool((old_state or {}).get("inSpawnPhase", False))
+        prev_candidates = ((old_state or {}).get("candidates") or {}).get(
+            "emptyNeighbors"
+        ) or []
+        if prev_in_spawn and len(prev_candidates) > 0:
+            if not action or action.get("type") != Action.SPAWN.value:
+                reward += REWARD_MISSED_SPAWN
 
-def get_state_key(state: Dict[str, Any]) -> str:
-    in_spawn = state.get("inSpawnPhase", False)
-    candidates = state.get("candidates") or {}
-    empty_count = len(candidates.get("emptyNeighbors") or [])
-    enemy_count = len(candidates.get("enemyNeighbors") or [])
-    return f"spawn:{in_spawn}|empty:{empty_count}|enemy:{enemy_count}"
+        return reward
 
+    def get_possible_actions(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        candidates = state.get("candidates") or {}
+        empty = candidates.get("emptyNeighbors") or []
+        enemy = candidates.get("enemyNeighbors") or []
 
-def get_action_key(action: Dict[str, Any]) -> str:
-    action_type = action.get("type")
-    if action_type == "spawn":
-        return f"spawn:{action.get('x')},{action.get('y')}"
-    elif action_type == "attack":
-        return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
-    return "none"
-
-
-class Agent:
-    def __init__(self, alpha: float = 0.1, gamma: float = 0.95, epsilon: float = 0.1):
-        self.alpha = alpha  # Learning rate
-        self.gamma = gamma  # Discount factor
-        self.epsilon = epsilon  # Exploration rate
-        self.qtable: Dict[str, Dict[str, float]] = {}
-        self.previous_state: Dict[str, Any] | None = None
-        self.previous_action: Dict[str, Any] | None = None
-
-    def get_q_value(self, state_key: str, action_key: str) -> float:
-        """Get Q-value for a state-action pair."""
-        if state_key not in self.qtable:
-            return 0.0
-        return self.qtable[state_key].get(action_key, 0.0)
-
-    def best_action(
-        self, state: Dict[str, Any], possible_actions: list[Dict[str, Any]]
-    ) -> Dict[str, Any] | None:
-        if not possible_actions:
-            return None
-
-        state_key = get_state_key(state)
-
-        # Initialize Q-values for this state if not seen before
-        if state_key not in self.qtable:
-            self.qtable[state_key] = {}
-            for action in possible_actions:
-                action_key = get_action_key(action)
-                self.qtable[state_key][action_key] = 0.0
-
-        if random.random() < self.epsilon:
-            return random.choice(possible_actions)
-
-        best_action_key = arg_max(self.qtable[state_key])
-        for action in possible_actions:
-            if get_action_key(action) == best_action_key:
-                return action
-
-        return random.choice(possible_actions)
-
-    def update(self, state: Dict[str, Any], reward: float) -> None:
-        """Update Q-values using Q-learning formula."""
-        if self.previous_state is None or self.previous_action is None:
-            return
-
-        prev_state_key = get_state_key(self.previous_state)
-        prev_action_key = get_action_key(self.previous_action)
-        current_state_key = get_state_key(state)
-
-        current_q = self.get_q_value(prev_state_key, prev_action_key)
-
-        max_next_q = 0.0
-        if current_state_key in self.qtable and self.qtable[current_state_key]:
-            max_next_q = max(self.qtable[current_state_key].values())
-
-        # Q(s,a) += alpha * (reward + gamma * max Q(s') - Q(s,a))
-        delta = self.alpha * (reward + self.gamma * max_next_q - current_q)
-
-        if prev_state_key not in self.qtable:
-            self.qtable[prev_state_key] = {}
-        self.qtable[prev_state_key][prev_action_key] = current_q + delta
-
-    def save_qtable(self, filename: str = QTABLE_FILE) -> None:
-        try:
-            with open(filename, "wb") as f:
-                pickle.dump(self.qtable, f)
-            print(f"Q-table saved to {filename} ({len(self.qtable)} states)")
-        except Exception as e:
-            print(f"Error saving Q-table: {e}")
-
-    def load_qtable(self, filename: str = QTABLE_FILE) -> None:
-        if not Path(filename).exists():
-            print(f"No saved Q-table found at {filename}, starting fresh")
-            return
-
-        try:
-            with open(filename, "rb") as f:
-                self.qtable = pickle.load(f)
-            print(f"Q-table loaded from {filename} ({len(self.qtable)} states)")
-        except Exception as e:
-            print(f"Error loading Q-table: {e}, starting fresh")
-            self.qtable = {}
-
-
-agent = Agent()
-agent.load_qtable()
-
-
-def calculate_reward(
-    old_state: Dict[str, Any], new_state: Dict[str, Any], action: Dict[str, Any]
-) -> float:
-    reward = REWARD_SMALL_STEP
-
-    old_territory = len(old_state.get("owned", []))
-    new_territory = len(new_state.get("owned", []))
-
-    territory_diff = new_territory - old_territory
-    if territory_diff > 0:
-        reward += REWARD_TERRITORY_GAIN * territory_diff
-        if action.get("type") == "attack":
-            old_candidates = old_state.get("candidates", {})
-            enemy_neighbors = old_candidates.get("enemyNeighbors", [])
-            action_coords = (action.get("x"), action.get("y"))
-            if any((n.get("x"), n.get("y")) == action_coords for n in enemy_neighbors):
-                reward += REWARD_CAPTURE_ENEMY
+        if state.get("inSpawnPhase"):
+            if empty:
+                actions: List[Dict[str, Any]] = []
+                for cell in empty[:PRUNE_MAX_TARGETS]:
+                    actions.append(
+                        {"type": Action.SPAWN.value, "x": cell["x"], "y": cell["y"]}
+                    )
+                return actions
             else:
-                reward += REWARD_CAPTURE_EMPTY
-    elif territory_diff < 0:
-        reward += REWARD_TERRITORY_LOSS * abs(territory_diff)
+                return [{"type": Action.NONE.value}]
 
-    if action.get("type") == "attack" and territory_diff == 0:
-        reward += REWARD_FAILED_ATTACK
+        targets = (enemy or []) + (empty or [])
+        if not targets:
+            return [{"type": Action.NONE.value}]
 
-    return reward
-
-
-def get_possible_actions(state: Dict[str, Any]) -> list[Dict[str, Any]]:
-    """
-    Generate all possible actions for the current state.
-    """
-    actions = []
-    in_spawn = state.get("inSpawnPhase")
-    candidates = state.get("candidates") or {}
-    empty = candidates.get("emptyNeighbors") or []
-    enemy = candidates.get("enemyNeighbors") or []
-
-    if in_spawn:
-        for cell in empty:
-            actions.append({"type": "spawn", "x": cell["x"], "y": cell["y"]})
-    else:
-        actions.append({"type": "none"})
-
-        attack_ratios = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        targets = enemy + empty
-
-        for cell in targets:
-            for ratio in attack_ratios:
+        actions = [{"type": Action.NONE.value}]
+        prioritized = (enemy or []) + (empty or [])
+        for cell in prioritized[:PRUNE_MAX_TARGETS]:
+            for ratio in ATTACK_RATIOS:
                 actions.append(
                     {
-                        "type": "attack",
+                        "type": Action.ATTACK.value,
                         "x": cell["x"],
                         "y": cell["y"],
                         "ratio": ratio,
                     }
                 )
 
-    return actions
+        return actions
 
 
-def decide_action(state: Dict[str, Any]) -> Dict[str, Any] | None:
-    possible_actions = get_possible_actions(state)
+class Agent:
+    def __init__(self, env):
+        self.env = env
+        self.qtable = {}
+        self.score = None
+        self.alpha = 0.1
+        self.gamma = 0.95
+        self.epsilon = 0.2
 
-    if not possible_actions:
-        return None
+        self.previous_state = None
+        self.previous_action = None
 
-    return agent.best_action(state, possible_actions)
+        self.history = []
+        self.reset()
+
+    def reset(self):
+        if self.score is not None:
+            self.history.append(self.score)
+        self.score = 0
+
+    def get_state(self):
+        s = getattr(self.env, "current_state", {}) or {}
+
+        me = s.get("me") or {}
+        candidates = s.get("candidates") or {}
+
+        in_spawn = bool(s.get("inSpawnPhase", False))
+        population = math.floor(normalize_number(me.get("population")) or 0)
+        max_population = math.floor(normalize_number(me.get("maxPopulation")) or 0)
+        troops = math.floor(normalize_number(me.get("troops")) or 0)
+        rank = normalize_number(me.get("rank"))
+        conquest = math.floor(normalize_number(me.get("conquestPercent")) or 0)
+        owned_count = math.floor(normalize_number(me.get("ownedCount")) or 0)
+
+        empty_count = len((candidates.get("emptyNeighbors") or []))
+        enemy_count = len((candidates.get("enemyNeighbors") or []))
+
+        state = (
+            in_spawn,
+            population,
+            max_population,
+            troops,
+            rank,
+            conquest,
+            owned_count,
+            empty_count,
+            enemy_count,
+        )
+
+        if DEBUG_MODE:
+            print(f"Current state: {state}")
+
+        return state
+
+    def get_q_value(self, state_key: str, action_key: str) -> float:
+        if state_key not in self.qtable:
+            return 0.0
+        return self.qtable[state_key].get(action_key, 0.0)
+
+    def best_action(
+        self, state: Dict[str, Any], possible_actions: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        if not possible_actions:
+            return None
+
+        state_key = self.get_state()
+
+        if state_key not in self.qtable:
+            self.qtable[state_key] = {}
+            for action in possible_actions:
+                action_key = get_action_key(action)
+                self.qtable[state_key][action_key] = 0.0
+        if random.random() < self.epsilon:
+            return random.choice(possible_actions)
+
+        possible_actions_keys = {
+            get_action_key(action): action for action in possible_actions
+        }
+        for action_key in possible_actions_keys:
+            if action_key not in self.qtable[state_key]:
+                self.qtable[state_key][action_key] = 0.0
+
+        valid_q_actions = [
+            (action_key, q_value)
+            for action_key, q_value in self.qtable[state_key].items()
+            if action_key in possible_actions_keys
+        ]
+
+        if not valid_q_actions:
+            return random.choice(possible_actions)
+
+        best_action_key = max(valid_q_actions, key=lambda item: item[1])[0]
+        return possible_actions_keys.get(
+            best_action_key, random.choice(possible_actions)
+        )
+
+    def do(self, action: Dict[str, Any], state: Dict[str, Any]) -> None:
+        if self.previous_state is not None and self.previous_action is not None:
+            reward = self.env.calculate_reward(
+                self.previous_state, state, self.previous_action
+            )
+            self.update(state, reward)
+            self.score += reward
+        self.previous_state = state
+        self.previous_action = action
+
+    def update(self, state: Dict[str, Any], reward: float) -> None:
+        if self.previous_state is None or self.previous_action is None:
+            return
+
+        env_saved = getattr(self.env, "current_state", None)
+        try:
+            self.env.current_state = self.previous_state
+            prev_state_key = self.get_state()
+        finally:
+            # restore original env state
+            self.env.current_state = env_saved
+        prev_action_key = get_action_key(self.previous_action)
+        current_state_key = self.get_state()
+        current_q = self.get_q_value(prev_state_key, prev_action_key)
+        max_next_q = 0.0
+        if current_state_key in self.qtable and self.qtable[current_state_key]:
+            max_next_q = max(self.qtable[current_state_key].values())
+        delta = self.alpha * (reward + self.gamma * max_next_q - current_q)
+        if prev_state_key not in self.qtable:
+            self.qtable[prev_state_key] = {}
+        self.qtable[prev_state_key][prev_action_key] = current_q + delta
+
+    def save(self, filename: str = QTABLE_FILE) -> None:
+        try:
+            with open(filename, "wb") as f:
+                pickle.dump((self.qtable, self.history), f)
+            print(f"Q-table saved to {filename} ({len(self.qtable)} states)")
+        except Exception as e:
+            print(f"Error saving Q-table: {e}")
+
+    def load(self, filename: str = QTABLE_FILE) -> None:
+        if not Path(filename).exists():
+            print(f"No saved Q-table found at {filename}, starting fresh")
+            return
+        try:
+            with open(filename, "rb") as f:
+                self.qtable, self.history = pickle.load(f)
+            print(f"Q-table loaded from {filename} ({len(self.qtable)} states)")
+        except Exception as e:
+            print(f"Error loading Q-table: {e}, starting fresh")
+            self.qtable = {}
+            self.history = []
 
 
-async def handle(ws: ServerConnection):
-    hello = await ws.recv()
-    try:
-        msg = json.loads(hello)
-        print("Bot connected:", msg)
-    except Exception:
-        print("Bot connected; failed reading hello message")
+async def run_main() -> None:
+    env = Environment()
+    agent = Agent(env)
 
-    last_tick = None
-    previous_state = None
+    agent.load(QTABLE_FILE)
 
-    try:
-        async for message in ws:
-            try:
-                state = json.loads(message)
-            except Exception:
-                continue
-            if state.get("type") != "state":
-                continue
-
-            tick = state.get("tick")
-            if tick == last_tick:
-                continue
-            last_tick = tick
-
-            # Calculate reward and update Q-table if we have a previous state
-            if previous_state is not None and agent.previous_action is not None:
-                reward = calculate_reward(previous_state, state, agent.previous_action)
-                agent.update(state, reward)
-                prev_action_str = get_action_key(agent.previous_action)
-                print(
-                    f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={len(agent.qtable)}"
-                )
-
-            action = decide_action(state)
-            if action is not None:
-                if action.get("type") != "none":
-                    await ws.send(json.dumps(action))
-                else:
-                    print(f"Tick {tick}: Agent chose to do nothing")
-
-                agent.previous_state = state
-                agent.previous_action = action
-
-            previous_state = state
-    finally:
-        print("\nConnection closed, saving Q-table...")
-        agent.save_qtable()
-
-
-async def main():
-    print(f"Starting bot server on ws://127.0.0.1:{PORT}")
-    async with serve(handle, "127.0.0.1", PORT):
-        await asyncio.Future()
+    if MODE == "bot":
+        bot = BotConnection(agent, env)
+        await bot.run()
+    elif MODE == "interface":
+        server_iface = ServerInterface(agent, env)
+        print(f"Starting interface websocket server on 0.0.0.0:{INTERFACE_PORT}")
+        async with serve(server_iface.handle_connection, "0.0.0.0", INTERFACE_PORT):
+            await asyncio.Future()
+    else:
+        print(f"Unknown MODE '{MODE}', exiting.")
+        exit(1)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(run_main())
     except KeyboardInterrupt:
-        print("\nShutting down, saving Q-table...")
-        agent.save_qtable()
+        print("Shutting down, saving qtable...")
+        a = Agent(Environment())
+        a.load(QTABLE_FILE)
+        a.save(QTABLE_FILE)
