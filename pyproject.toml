@@ -10,4 +10,4 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=9.0.0", "ruff>=0.14.4", "ty>=0.0.1a25"]
+dev = ["pytest>=9.0.1", "ruff>=0.14.5", "ty>=0.0.1a26"]
