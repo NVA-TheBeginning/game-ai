@@ -3,17 +3,18 @@ import json
 import random
 import string
 from typing import Any, Dict, Optional
-from lib.utils import format_number
+
 import websockets
 
-
-PRUNE_MAX_TARGETS = 50
-ATTACK_RATIOS = [0.20, 0.40, 0.60, 0.80]
-EPSILON_MIN = 0.02
-EPSILON_DECAY = 0.9995
-AUTOSAVE_INTERVAL = 300
-PRINT_INTERVAL = 20
-SERVER_WS = "ws://localhost:3000/bot"
+from lib.constants import (
+    AUTOSAVE_INTERVAL,
+    EPSILON_DECAY,
+    EPSILON_MIN,
+    PRINT_INTERVAL,
+    PRUNE_MAX_TARGETS,
+    SERVER_WS,
+)
+from lib.utils import format_number
 
 
 def make_id(length: int = 8) -> str:
