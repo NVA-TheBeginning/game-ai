@@ -128,7 +128,6 @@ class Agent:
         population = math.floor(normalize_number(me.get("population")) or 0)
         max_population = math.floor(normalize_number(me.get("maxPopulation")) or 0)
         troops = math.floor(normalize_number(me.get("troops")) or 0)
-        rank = normalize_number(me.get("rank"))
         conquest = math.floor(normalize_number(me.get("conquestPercent")) or 0)
         owned_count = math.floor(normalize_number(me.get("ownedCount")) or 0)
 
@@ -140,7 +139,6 @@ class Agent:
             population,
             max_population,
             troops,
-            rank,
             conquest,
             owned_count,
             empty_count,
