@@ -13,4 +13,5 @@ wheels/
 *.ropeproject
 *.pkl
 .ruff_cache/
+*.png
 qtable.*
