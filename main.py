@@ -227,6 +227,8 @@ class Agent:
         self.qtable[prev_state_key][prev_action_key] = current_q + delta
 
     def save(self, filename: str = QTABLE_FILE) -> None:
+        if len(self.qtable) == 0:
+            return
         try:
             with Path(filename).open("wb") as f:
                 pickle.dump((self.qtable, self.history), f)
