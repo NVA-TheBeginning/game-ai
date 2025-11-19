@@ -2,7 +2,7 @@ import asyncio
 import json
 import random
 import string
-from typing import Any, Dict, Optional
+from typing import Any
 
 import websockets
 
@@ -29,16 +29,16 @@ class BotConnection:
         self.client_id = make_id(8)
         self.persistent_id = make_id(8)
         self.username = f"rl-bot-{self.client_id[:4]}"
-        self.player_id: Optional[str] = None
-        self.current_game_id: Optional[str] = None
-        self.last_tick: Optional[int] = None
+        self.player_id: str | None = None
+        self.current_game_id: str | None = None
+        self.last_tick: int | None = None
         self.last_in_spawn = False
         self.autosave_timer = 0
         self.total_score = 0.0
-        self.prev_players_map: Dict[int, Dict[str, Any]] = {}
+        self.prev_players_map: dict[int, dict[str, Any]] = {}
 
     async def send_intent(
-        self, ws, intent: Dict[str, Any], log_prefix: str = "INTENT"
+        self, ws, intent: dict[str, Any], log_prefix: str = "INTENT"
     ) -> None:
         try:
             payload = json.dumps(intent, separators=(",", ":"))
@@ -49,11 +49,9 @@ class BotConnection:
         except Exception as e:
             print(f"Failed to send {log_prefix}:", e)
 
-    def _safe_update_env(self, env_obj: Any, state: Dict[str, Any]) -> None:
+    def _safe_update_env(self, env_obj: Any, state: dict[str, Any]) -> None:
         try:
-            if hasattr(env_obj, "update_state") and callable(
-                getattr(env_obj, "update_state")
-            ):
+            if hasattr(env_obj, "update_state") and callable(env_obj.update_state):
                 env_obj.update_state(state)
                 return
         except Exception:
@@ -70,15 +68,15 @@ class BotConnection:
         try:
             prev = getattr(env_obj, "current_state", None)
             try:
-                setattr(env_obj, "previous_state", prev)
-                setattr(env_obj, "current_state", state)
+                env_obj.previous_state = prev
+                env_obj.current_state = state
                 return
             except Exception:
                 pass
         except Exception:
             pass
 
-    def choose_auto_spawn(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def choose_auto_spawn(self, state: dict[str, Any]) -> dict[str, Any] | None:
         empty_neighbors = (state.get("candidates") or {}).get("emptyNeighbors") or []
         if empty_neighbors:
             choice = random.choice(empty_neighbors[:PRUNE_MAX_TARGETS])
@@ -99,7 +97,7 @@ class BotConnection:
         return None
 
     async def send_action_intent(
-        self, ws, action: Dict[str, Any], state: Dict[str, Any]
+        self, ws, action: dict[str, Any], state: dict[str, Any]
     ) -> None:
         if action.get("type") == Action.SPAWN.value:
             if self.player_id is None:
@@ -156,7 +154,7 @@ class BotConnection:
             }
             await self.send_intent(ws, intent_attack, "ATTACK")
 
-    def print_attack_events(self, state: Dict[str, Any], tick: int) -> None:
+    def print_attack_events(self, state: dict[str, Any], tick: int) -> None:
         try:
             players_list = state.get("players") or []
             players_map = {p.get("smallID"): p for p in players_list if p is not None}
@@ -173,7 +171,7 @@ class BotConnection:
                 curr_outgoing = my_curr.get("outgoingAttacks") or []
                 prev_outgoing = my_prev.get("outgoingAttacks") or []
 
-                def _normalize(a: Dict[str, Any]) -> Optional[tuple]:
+                def _normalize(a: dict[str, Any]) -> tuple | None:
                     try:
                         attacker = (
                             a.get("attackerID")
@@ -235,7 +233,7 @@ class BotConnection:
         except Exception:
             pass
 
-    async def process_state_tick(self, ws, state: Dict[str, Any]) -> None:
+    async def process_state_tick(self, ws, state: dict[str, Any]) -> None:
         tick = state.get("tick")
         if not isinstance(tick, int) or tick == self.last_tick:
             return

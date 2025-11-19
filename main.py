@@ -2,8 +2,9 @@ import asyncio
 import math
 import pickle
 import random
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from websockets.asyncio.server import serve
 
@@ -25,18 +26,18 @@ from lib.utils import Action, get_action_key, normalize_number
 
 class Environment:
     def __init__(self):
-        self.current_state: Optional[Dict[str, Any]] = None
-        self.previous_state: Optional[Dict[str, Any]] = None
+        self.current_state: dict[str, Any] | None = None
+        self.previous_state: dict[str, Any] | None = None
 
-    def update_state(self, state: Dict[str, Any]) -> None:
+    def update_state(self, state: dict[str, Any]) -> None:
         self.previous_state = self.current_state
         self.current_state = state
 
     def calculate_reward(
         self,
-        old_state: Dict[str, Any],
-        new_state: Dict[str, Any],
-        action: Optional[Dict[str, Any]],
+        old_state: dict[str, Any],
+        new_state: dict[str, Any],
+        action: dict[str, Any] | None,
     ) -> float:
         reward = REWARD_SMALL_STEP
 
@@ -55,27 +56,27 @@ class Environment:
         prev_candidates = ((old_state or {}).get("candidates") or {}).get(
             "emptyNeighbors"
         ) or []
-        if prev_in_spawn and len(prev_candidates) > 0:
-            if not action or action.get("type") != Action.SPAWN.value:
-                reward += REWARD_MISSED_SPAWN
+        if (
+            prev_in_spawn
+            and len(prev_candidates) > 0
+            and (not action or action.get("type") != Action.SPAWN.value)
+        ):
+            reward += REWARD_MISSED_SPAWN
 
         return reward
 
-    def get_possible_actions(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         candidates = state.get("candidates") or {}
         empty = candidates.get("emptyNeighbors") or []
         enemy = candidates.get("enemyNeighbors") or []
 
         if state.get("inSpawnPhase"):
             if empty:
-                actions: List[Dict[str, Any]] = []
-                for cell in empty[:PRUNE_MAX_TARGETS]:
-                    actions.append(
-                        {"type": Action.SPAWN.value, "x": cell["x"], "y": cell["y"]}
-                    )
-                return actions
-            else:
-                return [{"type": Action.NONE.value}]
+                return [
+                    {"type": Action.SPAWN.value, "x": cell["x"], "y": cell["y"]}
+                    for cell in empty[:PRUNE_MAX_TARGETS]
+                ]
+            return [{"type": Action.NONE.value}]
 
         targets = (enemy or []) + (empty or [])
         if not targets:
@@ -83,16 +84,16 @@ class Environment:
 
         actions = [{"type": Action.NONE.value}]
         prioritized = (enemy or []) + (empty or [])
-        for cell in prioritized[:PRUNE_MAX_TARGETS]:
-            for ratio in ATTACK_RATIOS:
-                actions.append(
-                    {
-                        "type": Action.ATTACK.value,
-                        "x": cell["x"],
-                        "y": cell["y"],
-                        "ratio": ratio,
-                    }
-                )
+        actions.extend(
+            {
+                "type": Action.ATTACK.value,
+                "x": cell["x"],
+                "y": cell["y"],
+                "ratio": ratio,
+            }
+            for cell in prioritized[:PRUNE_MAX_TARGETS]
+            for ratio in ATTACK_RATIOS
+        )
 
         return actions
 
@@ -131,8 +132,8 @@ class Agent:
         conquest = math.floor(normalize_number(me.get("conquestPercent")) or 0)
         owned_count = math.floor(normalize_number(me.get("ownedCount")) or 0)
 
-        empty_count = len((candidates.get("emptyNeighbors") or []))
-        enemy_count = len((candidates.get("enemyNeighbors") or []))
+        empty_count = len(candidates.get("emptyNeighbors") or [])
+        enemy_count = len(candidates.get("enemyNeighbors") or [])
 
         state = (
             in_spawn,
@@ -157,8 +158,8 @@ class Agent:
         return self.qtable[state_key].get(action_key, 0.0)
 
     def best_action(
-        self, state: Dict[str, Any], possible_actions: List[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
+        self, _state: dict[str, Any], possible_actions: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         if not possible_actions:
             return None
 
@@ -193,7 +194,7 @@ class Agent:
             best_action_key, random.choice(possible_actions)
         )
 
-    def do(self, action: Dict[str, Any], state: Dict[str, Any]) -> None:
+    def do(self, action: dict[str, Any], state: dict[str, Any]) -> None:
         if self.previous_state is not None and self.previous_action is not None:
             reward = self.env.calculate_reward(
                 self.previous_state, state, self.previous_action
@@ -203,7 +204,7 @@ class Agent:
         self.previous_state = state
         self.previous_action = action
 
-    def update(self, state: Dict[str, Any], reward: float) -> None:
+    def update(self, _state: dict[str, Any], reward: float) -> None:
         if self.previous_state is None or self.previous_action is None:
             return
 
@@ -218,7 +219,7 @@ class Agent:
         current_state_key = self.get_state()
         current_q = self.get_q_value(prev_state_key, prev_action_key)
         max_next_q = 0.0
-        if current_state_key in self.qtable and self.qtable[current_state_key]:
+        if self.qtable.get(current_state_key):
             max_next_q = max(self.qtable[current_state_key].values())
         delta = self.alpha * (reward + self.gamma * max_next_q - current_q)
         if prev_state_key not in self.qtable:
@@ -227,7 +228,7 @@ class Agent:
 
     def save(self, filename: str = QTABLE_FILE) -> None:
         try:
-            with open(filename, "wb") as f:
+            with Path(filename).open("wb") as f:
                 pickle.dump((self.qtable, self.history), f)
             print(f"Q-table saved to {filename} ({len(self.qtable)} states)")
         except Exception as e:
@@ -238,7 +239,7 @@ class Agent:
             print(f"No saved Q-table found at {filename}, starting fresh")
             return
         try:
-            with open(filename, "rb") as f:
+            with Path(filename).open("rb") as f:
                 self.qtable, self.history = pickle.load(f)
             print(f"Q-table loaded from {filename} ({len(self.qtable)} states)")
         except Exception as e:
@@ -263,7 +264,7 @@ async def run_main() -> None:
             await asyncio.Future()
     else:
         print(f"Unknown MODE '{MODE}', exiting.")
-        exit(1)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
