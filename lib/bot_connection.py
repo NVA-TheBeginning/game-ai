@@ -10,10 +10,12 @@ from lib.constants import (
     AUTOSAVE_INTERVAL,
     EPSILON_DECAY,
     EPSILON_MIN,
+    GRAPH_ENABLED,
     PRINT_INTERVAL,
     PRUNE_MAX_TARGETS,
     SERVER_WS,
 )
+from lib.metrics import GameMetrics
 from lib.utils import Action, format_number, get_action_key
 
 
@@ -36,6 +38,7 @@ class BotConnection:
         self.autosave_timer = 0
         self.total_score = 0.0
         self.prev_players_map: dict[int, dict[str, Any]] = {}
+        self.metrics = GameMetrics() if GRAPH_ENABLED else None
 
     async def send_intent(
         self, ws, intent: dict[str, Any], log_prefix: str = "INTENT"
@@ -239,6 +242,9 @@ class BotConnection:
             return
         self.last_tick = tick
 
+        if self.metrics is not None:
+            self.metrics.update_tick(tick)
+
         me = state.get("me", {})
         in_spawn = bool(state.get("inSpawnPhase", False))
 
@@ -301,6 +307,10 @@ class BotConnection:
             )
             self.agent.update(state, reward)
             self.total_score += reward
+
+            if self.metrics is not None:
+                self.metrics.add_reward(reward)
+
             if isinstance(tick, int) and (
                 tick % PRINT_INTERVAL == 0 or tick < PRINT_INTERVAL
             ):
@@ -324,7 +334,6 @@ class BotConnection:
             self.autosave_timer = 0
 
     async def run(self) -> None:
-        game_count = 0
         backoff = 0.5
 
         while True:
@@ -358,8 +367,9 @@ class BotConnection:
                         msg_type = state.get("type")
                         if msg_type == "created":
                             self.current_game_id = state.get("gameID")
-                            game_count += 1
                             print(f"Started new game {self.current_game_id}")
+                            if self.metrics is not None:
+                                self.metrics.start_game()
                             continue
                         if msg_type == "start":
                             print(
@@ -381,5 +391,22 @@ class BotConnection:
             finally:
                 print("Game ended, saving qtable...\n")
                 self.agent.save()
+
+                if self.metrics is not None and self.last_tick is not None:
+                    self.metrics.end_game(final_tick=self.last_tick)
+
+                    try:
+                        graph_path = self.metrics.generate_graphs()
+                        if graph_path:
+                            print(f"Training metrics graph saved to: {graph_path}")
+                            summary = self.metrics.get_summary()
+                            print(
+                                f"Summary: {summary['total_games']} games, "
+                                f"avg score: {summary['avg_score']:.2f}, "
+                                f"avg duration: {summary['avg_duration']:.0f} ticks"
+                            )
+                    except Exception as graph_error:
+                        print(f"Failed to generate graph: {graph_error}")
+
                 print(f"Reconnecting in {backoff:.1f}s...")
                 await asyncio.sleep(backoff)

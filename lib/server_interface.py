@@ -2,6 +2,7 @@ import contextlib
 import json
 from typing import TYPE_CHECKING
 
+from lib.constants import DEBUG_MODE
 from lib.utils import Action, get_action_key
 
 if TYPE_CHECKING:
@@ -64,16 +65,17 @@ class ServerInterface:
                     )
                     self.agent.update(state, reward)
                     prev_action_str = get_action_key(self.agent.previous_action)
-                    print(
-                        f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={len(self.agent.qtable)}"
-                    )
+                    if DEBUG_MODE:
+                        print(
+                            f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={len(self.agent.qtable)}"
+                        )
 
                 possible_actions = self.env.get_possible_actions(state)
                 action = self.agent.best_action(state, possible_actions)
                 if action is not None:
                     if action.get("type") != Action.NONE.value:
                         await ws.send(json.dumps(action))
-                    else:
+                    elif DEBUG_MODE:
                         print(f"Tick {tick}: Agent chose to do nothing")
 
                     self.agent.previous_state = state
