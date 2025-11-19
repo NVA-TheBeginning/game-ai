@@ -10,7 +10,7 @@ uv sync
 
 This will create a virtual environment and install all necessary dependencies as specified in the `pyproject.toml` file.
 
-To run a file run : 
+To run a file run :
 
 ```bash
 uv run <file>

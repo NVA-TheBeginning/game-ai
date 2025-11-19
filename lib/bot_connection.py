@@ -379,7 +379,7 @@ class BotConnection:
                 print("Connection error or game ended:", repr(e))
                 backoff = min(backoff * 2, 10.0)
             finally:
-                print("Game ended, saving qtable...")
+                print("Game ended, saving qtable...\n")
                 self.agent.save()
                 print(f"Reconnecting in {backoff:.1f}s...")
                 await asyncio.sleep(backoff)
