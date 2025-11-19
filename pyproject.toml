@@ -11,3 +11,33 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=9.0.1", "ruff>=0.14.5", "ty>=0.0.1a27"]
+
+[tool.ruff.lint]
+extend-select = [
+    "F",        # Pyflakes rules
+    "W",        # PyCodeStyle warnings
+    "I",        # Sort imports properly
+    "UP",       # Warn if certain things can changed due to newer Python versions
+    "C4",       # Catch incorrect use of comprehensions, dict, list, etc
+    "FA",       # Enforce from __future__ import annotations
+    "ISC",      # Good use of string concatenation
+    "ICN",      # Use common import conventions
+    "RET",      # Good return practices
+    "SIM",      # Common simplification rules
+    "TID",      # Some good import practices
+    "TC",       # Enforce importing certain types in a TYPE_CHECKING block
+    "PTH",      # Use pathlib instead of os.path
+    "NPY",      # Some numpy-specific things
+    "B",        # flake8-bugbear - common bugs
+    "ARG",      # flake8-unused-arguments
+    "PIE",      # flake8-pie
+    "A",        # flake8-builtins
+    "FBT",      # flake8-boolean-trap
+    "PERF",     # Performance-related rules
+    "RUF",      # Ruff-specific rules
+    "PL",       # pylint
+]
+ignore = [
+    "PLR0912",  # Too many branches
+    "PLR0915"  # Too many statements
+]

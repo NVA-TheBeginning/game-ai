@@ -1,8 +1,11 @@
+import contextlib
 import json
-
-from websockets.asyncio.server import ServerConnection
+from typing import TYPE_CHECKING
 
 from lib.utils import Action, get_action_key
+
+if TYPE_CHECKING:
+    from websockets.asyncio.server import ServerConnection
 
 
 class ServerInterface:
@@ -36,7 +39,7 @@ class ServerInterface:
                 last_tick = tick
                 try:
                     if hasattr(self.env, "update_state") and callable(
-                        getattr(self.env, "update_state")
+                        self.env.update_state
                     ):
                         self.env.update_state(state)
                     elif isinstance(self.env, dict):
@@ -44,12 +47,10 @@ class ServerInterface:
                         self.env["current_state"] = state
                     else:
                         try:
-                            setattr(
-                                self.env,
-                                "previous_state",
-                                getattr(self.env, "current_state", None),
+                            self.env.previous_state = getattr(
+                                self.env, "current_state", None
                             )
-                            setattr(self.env, "current_state", state)
+                            self.env.current_state = state
                         except Exception as e:
                             print(f"Failed to set previous/current state: {e}")
                 except Exception:
@@ -78,10 +79,8 @@ class ServerInterface:
                     self.agent.previous_state = state
                     self.agent.previous_action = action
 
-                    try:
+                    with contextlib.suppress(Exception):
                         self.agent.save()
-                    except Exception:
-                        pass
 
                 try:
                     if (not spawn_sent) and tick == 1:
