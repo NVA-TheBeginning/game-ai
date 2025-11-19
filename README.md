@@ -28,3 +28,12 @@ uv run ruff format
 # Type Check
 uv run ty check
 ```
+
+
+Docker :
+
+```bash
+docker build -t game-ai:latest .
+# Host network mode if your server runs on localhost
+docker run --network host game-ai:latest
+```
