@@ -303,11 +303,10 @@ class BotConnection:
             except Exception:
                 pass
 
-        prev_action_copy = await self.agent.get_previous_action_if_ready()
-        if prev_action_copy is not None:
-            reward = self.env.calculate_reward(
-                self.agent.previous_state, state, prev_action_copy
-            )
+        prev_state_action = await self.agent.get_previous_state_action_if_ready()
+        if prev_state_action is not None:
+            prev_state, prev_action_copy = prev_state_action
+            reward = self.env.calculate_reward(prev_state, state, prev_action_copy)
             await self.agent.update(state, reward)
             self.total_score += reward
 
@@ -318,7 +317,7 @@ class BotConnection:
                 tick % PRINT_INTERVAL == 0 or tick < PRINT_INTERVAL
             ):
                 prev_action_str = get_action_key(prev_action_copy)
-                qtable_size = self.agent.qtable.get_size()
+                qtable_size = await self.agent.qtable.get_size()
                 print(
                     f"Tick {tick}: Action={prev_action_str}, TotalScore={format_number(self.total_score)}, QStates={qtable_size}"
                 )

@@ -57,15 +57,18 @@ class ServerInterface:
                 except Exception:
                     pass
 
-                prev_action_copy = await self.agent.get_previous_action_if_ready()
-                if prev_action_copy is not None:
+                prev_state_action = (
+                    await self.agent.get_previous_state_action_if_ready()
+                )
+                if prev_state_action is not None:
+                    prev_state, prev_action_copy = prev_state_action
                     reward = self.env.calculate_reward(
-                        self.agent.previous_state, state, prev_action_copy
+                        prev_state, state, prev_action_copy
                     )
                     await self.agent.update(state, reward)
                     prev_action_str = get_action_key(prev_action_copy)
                     if DEBUG_MODE:
-                        qtable_size = self.agent.qtable.get_size()
+                        qtable_size = await self.agent.qtable.get_size()
                         print(
                             f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={qtable_size}"
                         )

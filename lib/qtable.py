@@ -2,10 +2,13 @@ import asyncio
 import contextlib
 import fcntl
 import pickle
+import threading
 from pathlib import Path
 from typing import Any
 
 from lib.constants import QTABLE_FILE
+
+_initialization_lock = threading.Lock()
 
 
 class QTable:
@@ -22,13 +25,17 @@ class QTable:
     @classmethod
     def get_instance(cls, filename: str = QTABLE_FILE) -> QTable:
         if cls._instance is None:
-            cls._instance = cls(filename)
+            with _initialization_lock:
+                if cls._instance is None:
+                    cls._instance = cls(filename)
         return cls._instance
 
     @classmethod
     async def get_lock(cls) -> asyncio.Lock:
         if cls._lock is None:
-            cls._lock = asyncio.Lock()
+            with _initialization_lock:
+                if cls._lock is None:
+                    cls._lock = asyncio.Lock()
         return cls._lock
 
     def _acquire_file_lock(self, file_handle) -> None:
@@ -61,6 +68,7 @@ class QTable:
                             f"Q-table loaded from {self.filename} "
                             f"({len(self._local_qtable)} states)"
                         )
+                        self._dirty = False
                     finally:
                         self._release_file_lock(f)
             except Exception as e:
@@ -119,6 +127,17 @@ class QTable:
                 return 0.0
             return self._local_qtable[state_key].get(action_key, 0.0)
 
+    async def get_state_actions(
+        self, state_key: Any, action_keys: list[str]
+    ) -> dict[str, float]:
+        async with await self.get_lock():
+            if state_key not in self._local_qtable:
+                return dict.fromkeys(action_keys, 0.0)
+            return {
+                action_key: self._local_qtable[state_key].get(action_key, 0.0)
+                for action_key in action_keys
+            }
+
     async def set_q_value(
         self, state_key: Any, action_key: str, q_value: float
     ) -> None:
@@ -144,5 +163,6 @@ class QTable:
                 return 0.0
             return max(self._local_qtable[state_key].values())
 
-    def get_size(self) -> int:
-        return len(self._local_qtable)
+    async def get_size(self) -> int:
+        async with await self.get_lock():
+            return len(self._local_qtable)

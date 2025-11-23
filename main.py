@@ -147,10 +147,12 @@ class Agent:
 
         return state
 
-    async def get_previous_action_if_ready(self) -> dict[str, Any] | None:
+    async def get_previous_state_action_if_ready(
+        self,
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
         async with self._state_lock:
             if self.previous_state is not None and self.previous_action is not None:
-                return self.previous_action.copy()
+                return (self.previous_state, self.previous_action.copy())
         return None
 
     async def set_previous_state_action(
@@ -180,11 +182,10 @@ class Agent:
         possible_actions_keys = {
             get_action_key(action): action for action in possible_actions
         }
-
-        valid_q_actions = []
-        for action_key in possible_actions_keys:
-            q_value = await self.qtable.get_q_value(state_key, action_key)
-            valid_q_actions.append((action_key, q_value))
+        state_actions = await self.qtable.get_state_actions(
+            state_key, list(possible_actions_keys.keys())
+        )
+        valid_q_actions = list(state_actions.items())
 
         if not valid_q_actions:
             return random.choice(possible_actions)
@@ -201,8 +202,7 @@ class Agent:
             )
             await self.update(state, reward)
             self.score += reward
-        self.previous_state = state
-        self.previous_action = action
+        await self.set_previous_state_action(state, action)
 
     async def update(self, _state: dict[str, Any], reward: float) -> None:
         async with self._state_lock:
