@@ -241,59 +241,39 @@ class BotConnection:
         except Exception:
             pass
 
-    async def process_state_tick(self, ws, state: dict[str, Any]) -> None:
-        tick = state.get("tick")
-        if not isinstance(tick, int) or tick == self.last_tick:
-            return
-        self.last_tick = tick
-
-        if self.metrics is not None:
-            self.metrics.update_tick(tick)
-
-        me = state.get("me", {})
+    async def _handle_auto_spawn(self, ws, state: dict[str, Any]) -> bool:
         in_spawn = bool(state.get("inSpawnPhase", False))
+        if not in_spawn or self.last_in_spawn:
+            return False
 
-        if isinstance(tick, int) and (tick % PRINT_INTERVAL == 0):
-            print(f"Tick {tick}: me={me}")
+        auto = self.choose_auto_spawn(state)
+        if not auto:
+            self.last_in_spawn = True
+            return True
 
-        self.print_attack_events(state, tick)
+        player_id = await self._ensure_player_id()
+        spawn_intent = {
+            "type": "intent",
+            "clientID": self.client_id,
+            "gameID": self.current_game_id,
+            "intent": {
+                "type": "spawn",
+                "clientID": self.client_id,
+                "playerID": player_id,
+                "flag": None,
+                "name": self.username,
+                "playerType": "BOT",
+                "x": auto.get("x"),
+                "y": auto.get("y"),
+            },
+        }
+        await self.send_intent(ws, spawn_intent, "AUTO-SPAWN")
+        spawn_action = {"type": Action.SPAWN.value, "x": auto.get("x"), "y": auto.get("y")}
+        await self.agent.set_previous_state_action(state, spawn_action)
+        self.last_in_spawn = True
+        return True
 
-        if in_spawn and not self.last_in_spawn:
-            print(f"==> ENTER spawn phase (tick={tick})")
-        if not in_spawn and self.last_in_spawn:
-            print(f"<== EXIT spawn phase (tick={tick})")
-
-        if in_spawn and not self.last_in_spawn:
-            auto = self.choose_auto_spawn(state)
-            if auto:
-                player_id = await self._ensure_player_id()
-                spawn_intent = {
-                    "type": "intent",
-                    "clientID": self.client_id,
-                    "gameID": self.current_game_id,
-                    "intent": {
-                        "type": "spawn",
-                        "clientID": self.client_id,
-                        "playerID": player_id,
-                        "flag": None,
-                        "name": self.username,
-                        "playerType": "BOT",
-                        "x": auto.get("x"),
-                        "y": auto.get("y"),
-                    },
-                }
-                await self.send_intent(ws, spawn_intent, "AUTO-SPAWN")
-                spawn_action = {
-                    "type": Action.SPAWN.value,
-                    "x": auto.get("x"),
-                    "y": auto.get("y"),
-                }
-                await self.agent.set_previous_state_action(state, spawn_action)
-                self.last_in_spawn = True
-                return
-
-        self.last_in_spawn = in_spawn
-
+    def _update_env(self, state: dict[str, Any]) -> None:
         try:
             self._safe_update_env(self.env, state)
         except Exception:
@@ -303,25 +283,27 @@ class BotConnection:
             except Exception:
                 pass
 
+    async def _process_prev_transition(self, state: dict[str, Any], tick: int) -> None:
         prev_state_action = await self.agent.get_previous_state_action_if_ready()
-        if prev_state_action is not None:
-            prev_state, prev_action_copy = prev_state_action
-            reward = self.env.calculate_reward(prev_state, state, prev_action_copy)
-            await self.agent.update(state, reward)
-            self.total_score += reward
+        if prev_state_action is None:
+            return
 
-            if self.metrics is not None:
-                self.metrics.add_reward(reward)
+        prev_state, prev_action_copy = prev_state_action
+        reward = self.env.calculate_reward(prev_state, state, prev_action_copy)
+        await self.agent.update(state, reward)
+        self.total_score += reward
 
-            if isinstance(tick, int) and (
-                tick % PRINT_INTERVAL == 0 or tick < PRINT_INTERVAL
-            ):
-                prev_action_str = get_action_key(prev_action_copy)
-                qtable_size = await self.agent.qtable.get_size()
-                print(
-                    f"Tick {tick}: Action={prev_action_str}, TotalScore={format_number(self.total_score)}, QStates={qtable_size}"
-                )
+        if self.metrics is not None:
+            self.metrics.add_reward(reward)
 
+        if isinstance(tick, int) and (tick % PRINT_INTERVAL == 0):
+            prev_action_str = get_action_key(prev_action_copy)
+            qtable_size = await self.agent.qtable.get_size()
+            print(
+                f"Tick {tick}: Action={prev_action_str}, Rewards={format_number(self.total_score)}, QStates={qtable_size}"
+            )
+
+    async def _choose_and_send_action(self, ws, state: dict[str, Any]) -> None:
         possible_actions = self.env.get_possible_actions(state)
         action = await self.agent.best_action(state, possible_actions)
         self.agent.epsilon = max(EPSILON_MIN, self.agent.epsilon * EPSILON_DECAY)
@@ -330,10 +312,32 @@ class BotConnection:
             await self.send_action_intent(ws, action, state)
             await self.agent.set_previous_state_action(state, action)
 
+    async def _maybe_autosave(self) -> None:
         self.autosave_timer += 1
         if self.autosave_timer >= AUTOSAVE_INTERVAL:
             await self.agent.save()
             self.autosave_timer = 0
+
+    async def process_state_tick(self, ws, state: dict[str, Any]) -> None:
+        tick = state.get("tick")
+        if not isinstance(tick, int) or tick == self.last_tick:
+            return
+        self.last_tick = tick
+
+        if self.metrics is not None:
+            self.metrics.update_tick(tick)
+
+        me = state.get("me", {}) 
+        in_spawn = bool(state.get("inSpawnPhase", False))
+
+        handled_spawn = await self._handle_auto_spawn(ws, state)
+        if handled_spawn:
+            return
+
+        self._update_env(state)
+        await self._process_prev_transition(state, tick)
+        await self._choose_and_send_action(ws, state)
+        await self._maybe_autosave()
 
     async def run(self) -> None:
         backoff = 0.5

@@ -39,13 +39,12 @@ class Environment:
     ) -> float:
         reward = REWARD_SMALL_STEP
 
-        prev_small = (old_state or {}).get("me", {}).get("smallID")
-        new_small = (new_state or {}).get("me", {}).get("smallID")
+        print(f"State: {self.current_state}") # @ TODO: Keep the state minimal
+        print(f"Previous State: {self.previous_state}")
+
         if (
             action
             and action.get("type") == Action.SPAWN.value
-            and (not prev_small)
-            and new_small
         ):
             reward += REWARD_SPAWN_SUCCESS
             print(f"Reward: spawn success detected -> +{REWARD_SPAWN_SUCCESS}")
@@ -124,7 +123,6 @@ class Agent:
         population = math.floor(normalize_number(me.get("population")) or 0)
         max_population = math.floor(normalize_number(me.get("maxPopulation")) or 0)
         troops = math.floor(normalize_number(me.get("troops")) or 0)
-        rank = normalize_number(me.get("rank"))
         conquest = math.floor(normalize_number(me.get("conquestPercent")) or 0)
         owned_count = math.floor(normalize_number(me.get("ownedCount")) or 0)
         empty_count = len(candidates.get("emptyNeighbors") or [])
@@ -135,7 +133,6 @@ class Agent:
             population,
             max_population,
             troops,
-            rank,
             conquest,
             owned_count,
             empty_count,
