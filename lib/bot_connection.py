@@ -79,6 +79,12 @@ class BotConnection:
         except Exception:
             pass
 
+    async def _ensure_player_id(self) -> str:
+        async with self.agent._state_lock:
+            if self.player_id is None:
+                self.player_id = make_id(8)
+        return self.player_id
+
     def choose_auto_spawn(self, state: dict[str, Any]) -> dict[str, Any] | None:
         empty_neighbors = (state.get("candidates") or {}).get("emptyNeighbors") or []
         if empty_neighbors:
@@ -103,8 +109,7 @@ class BotConnection:
         self, ws, action: dict[str, Any], state: dict[str, Any]
     ) -> None:
         if action.get("type") == Action.SPAWN.value:
-            if self.player_id is None:
-                self.player_id = make_id(8)
+            player_id = await self._ensure_player_id()
             intent_msg = {
                 "type": "intent",
                 "clientID": self.client_id,
@@ -112,7 +117,7 @@ class BotConnection:
                 "intent": {
                     "type": Action.SPAWN.value,
                     "clientID": self.client_id,
-                    "playerID": self.player_id,
+                    "playerID": player_id,
                     "flag": None,
                     "name": self.username,
                     "playerType": "BOT",
@@ -261,8 +266,7 @@ class BotConnection:
         if in_spawn and not self.last_in_spawn:
             auto = self.choose_auto_spawn(state)
             if auto:
-                if self.player_id is None:
-                    self.player_id = make_id(8)
+                player_id = await self._ensure_player_id()
                 spawn_intent = {
                     "type": "intent",
                     "clientID": self.client_id,
@@ -270,7 +274,7 @@ class BotConnection:
                     "intent": {
                         "type": "spawn",
                         "clientID": self.client_id,
-                        "playerID": self.player_id,
+                        "playerID": player_id,
                         "flag": None,
                         "name": self.username,
                         "playerType": "BOT",
@@ -279,12 +283,12 @@ class BotConnection:
                     },
                 }
                 await self.send_intent(ws, spawn_intent, "AUTO-SPAWN")
-                self.agent.previous_state = state
-                self.agent.previous_action = {
+                spawn_action = {
                     "type": Action.SPAWN.value,
                     "x": auto.get("x"),
                     "y": auto.get("y"),
                 }
+                await self.agent.set_previous_state_action(state, spawn_action)
                 self.last_in_spawn = True
                 return
 
@@ -298,14 +302,13 @@ class BotConnection:
                 self.env.current_state = state
             except Exception:
                 pass
-        if (
-            self.agent.previous_state is not None
-            and self.agent.previous_action is not None
-        ):
+
+        prev_action_copy = await self.agent.get_previous_action_if_ready()
+        if prev_action_copy is not None:
             reward = self.env.calculate_reward(
-                self.agent.previous_state, state, self.agent.previous_action
+                self.agent.previous_state, state, prev_action_copy
             )
-            self.agent.update(state, reward)
+            await self.agent.update(state, reward)
             self.total_score += reward
 
             if self.metrics is not None:
@@ -314,23 +317,23 @@ class BotConnection:
             if isinstance(tick, int) and (
                 tick % PRINT_INTERVAL == 0 or tick < PRINT_INTERVAL
             ):
-                prev_action_str = get_action_key(self.agent.previous_action)
+                prev_action_str = get_action_key(prev_action_copy)
+                qtable_size = self.agent.qtable.get_size()
                 print(
-                    f"Tick {tick}: Action={prev_action_str}, TotalScore={format_number(self.total_score)}, QStates={len(self.agent.qtable)}"
+                    f"Tick {tick}: Action={prev_action_str}, TotalScore={format_number(self.total_score)}, QStates={qtable_size}"
                 )
 
         possible_actions = self.env.get_possible_actions(state)
-        action = self.agent.best_action(state, possible_actions)
+        action = await self.agent.best_action(state, possible_actions)
         self.agent.epsilon = max(EPSILON_MIN, self.agent.epsilon * EPSILON_DECAY)
 
         if action is not None and action.get("type") != Action.NONE.value:
             await self.send_action_intent(ws, action, state)
-            self.agent.previous_state = state
-            self.agent.previous_action = action
+            await self.agent.set_previous_state_action(state, action)
 
         self.autosave_timer += 1
         if self.autosave_timer >= AUTOSAVE_INTERVAL:
-            self.agent.save()
+            await self.agent.save()
             self.autosave_timer = 0
 
     async def run(self) -> None:
@@ -390,7 +393,7 @@ class BotConnection:
                 backoff = min(backoff * 2, 10.0)
             finally:
                 print("Game ended, saving qtable...\n")
-                self.agent.save()
+                await self.agent.save()
 
                 if self.metrics is not None and self.last_tick is not None:
                     self.metrics.end_game(final_tick=self.last_tick)

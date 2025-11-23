@@ -14,4 +14,4 @@ wheels/
 *.pkl
 .ruff_cache/
 *.png
-qtable.*
+qtable.pkl

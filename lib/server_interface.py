@@ -56,33 +56,32 @@ class ServerInterface:
                             print(f"Failed to set previous/current state: {e}")
                 except Exception:
                     pass
-                if (
-                    self.agent.previous_state is not None
-                    and self.agent.previous_action is not None
-                ):
+
+                prev_action_copy = await self.agent.get_previous_action_if_ready()
+                if prev_action_copy is not None:
                     reward = self.env.calculate_reward(
-                        self.agent.previous_state, state, self.agent.previous_action
+                        self.agent.previous_state, state, prev_action_copy
                     )
-                    self.agent.update(state, reward)
-                    prev_action_str = get_action_key(self.agent.previous_action)
+                    await self.agent.update(state, reward)
+                    prev_action_str = get_action_key(prev_action_copy)
                     if DEBUG_MODE:
+                        qtable_size = self.agent.qtable.get_size()
                         print(
-                            f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={len(self.agent.qtable)}"
+                            f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={qtable_size}"
                         )
 
                 possible_actions = self.env.get_possible_actions(state)
-                action = self.agent.best_action(state, possible_actions)
+                action = await self.agent.best_action(state, possible_actions)
                 if action is not None:
                     if action.get("type") != Action.NONE.value:
                         await ws.send(json.dumps(action))
                     elif DEBUG_MODE:
                         print(f"Tick {tick}: Agent chose to do nothing")
 
-                    self.agent.previous_state = state
-                    self.agent.previous_action = action
+                    await self.agent.set_previous_state_action(state, action)
 
                     with contextlib.suppress(Exception):
-                        self.agent.save()
+                        await self.agent.save()
 
                 try:
                     if (not spawn_sent) and tick == 1:
@@ -95,6 +94,6 @@ class ServerInterface:
         finally:
             print("\nConnection closed, saving Q-table...")
             try:
-                self.agent.save()
+                await self.agent.save()
             except Exception as e:
                 print(f"Exception occurred while saving agent in finally block: {e}")
