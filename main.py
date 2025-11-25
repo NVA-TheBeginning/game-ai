@@ -2,6 +2,7 @@ import asyncio
 import math
 import random
 import sys
+from enum import Enum
 from typing import Any
 
 from websockets.asyncio.server import serve
@@ -9,7 +10,6 @@ from websockets.asyncio.server import serve
 from lib.bot_connection import BotConnection
 from lib.constants import (
     ATTACK_RATIOS,
-    DEBUG_MODE,
     INTERFACE_PORT,
     MODE,
     PRUNE_MAX_TARGETS,
@@ -19,17 +19,42 @@ from lib.constants import (
 )
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
-from lib.utils import Action, get_action_key, normalize_number
+from lib.utils import normalize_number
+
+
+class Action(Enum):
+    SPAWN = "spawn"
+    ATTACK = "attack"
+    NONE = "none"
+
+
+def arg_max(table):
+    return max(table, key=table.get)
 
 
 class Environment:
     def __init__(self):
         self.current_state: dict[str, Any] | None = None
         self.previous_state: dict[str, Any] | None = None
+        self._state_event = asyncio.Event()
+        self._action_queue = asyncio.Queue()
 
     def update_state(self, state: dict[str, Any]) -> None:
         self.previous_state = self.current_state
         self.current_state = state
+        self._state_event.set()
+
+    async def do(self, _pos, action):
+        await self._action_queue.put(action)
+
+        self._state_event.clear()
+        await self._state_event.wait()
+
+        reward = self.calculate_reward(
+            self.previous_state or {}, self.current_state or {}, action
+        )
+
+        return self.current_state, reward
 
     def calculate_reward(
         self,
@@ -39,13 +64,10 @@ class Environment:
     ) -> float:
         reward = REWARD_SMALL_STEP
 
-        print(f"State: {self.current_state}") # @ TODO: Keep the state minimal
+        print(f"State: {self.current_state}")  # @ TODO: Keep the state minimal
         print(f"Previous State: {self.previous_state}")
 
-        if (
-            action
-            and action.get("type") == Action.SPAWN.value
-        ):
+        if action and action.get("type") == Action.SPAWN.value:
             reward += REWARD_SPAWN_SUCCESS
             print(f"Reward: spawn success detected -> +{REWARD_SPAWN_SUCCESS}")
 
@@ -98,13 +120,12 @@ class Environment:
 class Agent:
     def __init__(self, env):
         self.env = env
+        self.reward = 0
         self.qtable = QTable.get_instance()
         self.score = None
         self.alpha = 0.1
         self.gamma = 0.95
         self.epsilon = 0.2
-        self.previous_state = None
-        self.previous_action = None
         self.history = []
         self._state_lock = asyncio.Lock()
         self.reset()
@@ -112,7 +133,9 @@ class Agent:
     def reset(self):
         if self.score is not None:
             self.history.append(self.score)
+        self.iterations = 0
         self.score = 0
+        self.state = None
 
     def get_state(self):
         s = getattr(self.env, "current_state", {}) or {}
@@ -121,106 +144,72 @@ class Agent:
 
         in_spawn = bool(s.get("inSpawnPhase", False))
         population = math.floor(normalize_number(me.get("population")) or 0)
-        max_population = math.floor(normalize_number(me.get("maxPopulation")) or 0)
-        troops = math.floor(normalize_number(me.get("troops")) or 0)
-        conquest = math.floor(normalize_number(me.get("conquestPercent")) or 0)
-        owned_count = math.floor(normalize_number(me.get("ownedCount")) or 0)
+        pop_bin = int(math.log2(population + 1))
+
         empty_count = len(candidates.get("emptyNeighbors") or [])
         enemy_count = len(candidates.get("enemyNeighbors") or [])
 
-        state = (
+        return (
             in_spawn,
-            population,
-            max_population,
-            troops,
-            conquest,
-            owned_count,
+            pop_bin,
             empty_count,
             enemy_count,
         )
 
-        if DEBUG_MODE:
-            print(f"Current state: {state}")
+    async def do(self, action):
+        previous_state = self.state
 
-        return state
+        self.state, self.reward = await self.env.do(self.state, action)
 
-    async def get_previous_state_action_if_ready(
-        self,
-    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
-        async with self._state_lock:
-            if self.previous_state is not None and self.previous_action is not None:
-                return (self.previous_state, self.previous_action.copy())
-        return None
+        new_state_key = self.get_state()
+        prev_state_key = previous_state
 
-    async def set_previous_state_action(
-        self, state: dict[str, Any], action: dict[str, Any]
-    ) -> None:
-        async with self._state_lock:
-            self.previous_state = state
-            self.previous_action = action
+        action_key = self._get_action_key(action)
 
-    async def get_q_value(self, state_key: Any, action_key: str) -> float:
-        return await self.qtable.get_q_value(state_key, action_key)
+        current_q = await self.qtable.get_q_value(prev_state_key, action_key)
+        max_next_q = await self.qtable.get_max_q_value(new_state_key)
 
-    async def best_action(
-        self, _state: dict[str, Any], possible_actions: list[dict[str, Any]]
-    ) -> dict[str, Any] | None:
+        delta = self.alpha * (self.reward + self.gamma * max_next_q - current_q)
+        new_q = current_q + delta
+
+        await self.qtable.set_q_value(prev_state_key, action_key, new_q)
+
+        self.score += self.reward
+        self.iterations += 1
+
+        self.state = new_state_key
+
+    async def best_action(self):
+        self.state = self.get_state()
+        possible_actions = self.env.get_possible_actions(self.env.current_state or {})
+
         if not possible_actions:
-            return None
-
-        async with self._state_lock:
-            state_key = self.get_state()
-        action_keys = [get_action_key(action) for action in possible_actions]
-        await self.qtable.ensure_state_exists(state_key, action_keys)
+            return {"type": Action.NONE.value}
 
         if random.random() < self.epsilon:
             return random.choice(possible_actions)
 
-        possible_actions_keys = {
-            get_action_key(action): action for action in possible_actions
-        }
-        state_actions = await self.qtable.get_state_actions(
-            state_key, list(possible_actions_keys.keys())
-        )
-        valid_q_actions = list(state_actions.items())
+        action_keys = [self._get_action_key(a) for a in possible_actions]
+        q_values = await self.qtable.get_state_actions(self.state, action_keys)
 
-        if not valid_q_actions:
+        if not q_values:
             return random.choice(possible_actions)
 
-        best_action_key = max(valid_q_actions, key=lambda item: item[1])[0]
-        return possible_actions_keys.get(
-            best_action_key, random.choice(possible_actions)
-        )
+        best_action_key = max(q_values, key=q_values.get)
 
-    async def do(self, action: dict[str, Any], state: dict[str, Any]) -> None:
-        if self.previous_state is not None and self.previous_action is not None:
-            reward = self.env.calculate_reward(
-                self.previous_state, state, self.previous_action
-            )
-            await self.update(state, reward)
-            self.score += reward
-        await self.set_previous_state_action(state, action)
+        for a in possible_actions:
+            if self._get_action_key(a) == best_action_key:
+                return a
 
-    async def update(self, _state: dict[str, Any], reward: float) -> None:
-        async with self._state_lock:
-            if self.previous_state is None or self.previous_action is None:
-                return
+        return random.choice(possible_actions)
 
-            env_saved = getattr(self.env, "current_state", None)
-            try:
-                self.env.current_state = self.previous_state
-                prev_state_key = self.get_state()
-            finally:
-                self.env.current_state = env_saved
-
-            prev_action_key = get_action_key(self.previous_action)
-            current_state_key = self.get_state()
-
-        current_q = await self.get_q_value(prev_state_key, prev_action_key)
-        max_next_q = await self.qtable.get_max_q_value(current_state_key)
-        delta = self.alpha * (reward + self.gamma * max_next_q - current_q)
-        new_q_value = current_q + delta
-        await self.qtable.set_q_value(prev_state_key, prev_action_key, new_q_value)
+    def _get_action_key(self, action: dict[str, Any]) -> str:
+        action_type = action.get("type")
+        if action_type == Action.SPAWN.value:
+            return f"spawn:{action.get('x')},{action.get('y')}"
+        if action_type == Action.ATTACK.value:
+            return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
+        return Action.NONE.value
 
     async def save(self) -> None:
         await self.qtable.save()
