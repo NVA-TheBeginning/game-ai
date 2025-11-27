@@ -64,20 +64,29 @@ class Environment:
     ) -> float:
         reward = REWARD_SMALL_STEP
 
-        print(f"State: {self.current_state}")  # @ TODO: Keep the state minimal
-        print(f"Previous State: {self.previous_state}")
+        # Create a concise status line that updates on the same line
+        state = self.current_state or {}
+        tick = state.get("tick", 0)
+        in_spawn = state.get("inSpawnPhase", False)
+        me = state.get("me", {})
+        pop = me.get("population", 0)
+        owned = me.get("ownedCount", 0)
+        action_type = action.get("type", "none") if action else "none"
+        
+        status = f"\rTick: {tick:4d} | Phase: {'SPAWN' if in_spawn else 'BATTLE'} | Pop: {pop:4d} | Owned: {owned:3d} | Action: {action_type:6s} | Reward: {reward:+.2f}"
+        print(status, end='', flush=True)
 
         if action and action.get("type") == Action.SPAWN.value:
             reward += REWARD_SPAWN_SUCCESS
-            print(f"Reward: spawn success detected -> +{REWARD_SPAWN_SUCCESS}")
 
         prev_in_spawn = bool((old_state or {}).get("inSpawnPhase", False))
-        prev_candidates = ((old_state or {}).get("candidates") or {}).get(
-            "emptyNeighbors"
-        ) or []
+        prev_candidates = (old_state or {}).get("candidates") or []
+        
+        prev_empty = [c for c in prev_candidates if c.get("troops", 0) == 0]
+        
         if (
             prev_in_spawn
-            and len(prev_candidates) > 0
+            and len(prev_empty) > 0
             and (not action or action.get("type") != Action.SPAWN.value)
         ):
             reward += REWARD_MISSED_SPAWN
@@ -85,9 +94,16 @@ class Environment:
         return reward
 
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
-        candidates = state.get("candidates") or {}
-        empty = candidates.get("emptyNeighbors") or []
-        enemy = candidates.get("enemyNeighbors") or []
+        candidates = state.get("candidates") or []
+        
+        # Handle both old format (dict with emptyNeighbors/enemyNeighbors) and new format (list)
+        if isinstance(candidates, dict):
+            empty = candidates.get("emptyNeighbors") or []
+            enemy = candidates.get("enemyNeighbors") or []
+        else:
+            # New format: candidates is a list, wilderness cells have troops=0
+            empty = [c for c in candidates if c.get("troops", 0) == 0]
+            enemy = [c for c in candidates if c.get("troops", 0) > 0]
 
         if state.get("inSpawnPhase"):
             if empty:
@@ -97,24 +113,39 @@ class Environment:
                 ]
             return [{"type": Action.NONE.value}]
 
+        # Check if we can attack: population must be > 70% of max population
+        me = state.get("me") or {}
+        population = me.get("population", 0)
+        max_population = me.get("maxPopulation", 0)
+        
+        can_attack = False
+        if max_population > 0:
+            population_ratio = population / max_population
+            can_attack = population_ratio > 0.70
+        
         targets = (enemy or []) + (empty or [])
         if not targets:
             return [{"type": Action.NONE.value}]
 
         actions = [{"type": Action.NONE.value}]
-        prioritized = (enemy or []) + (empty or [])
-        actions.extend(
-            {
-                "type": Action.ATTACK.value,
-                "x": cell["x"],
-                "y": cell["y"],
-                "ratio": ratio,
-            }
-            for cell in prioritized[:PRUNE_MAX_TARGETS]
-            for ratio in ATTACK_RATIOS
-        )
+        
+        # Only add attack actions if we meet the population threshold
+        if can_attack:
+            prioritized = (enemy or []) + (empty or [])
+            # Use attack ratios between 30% and 40% to keep population between 40-70%
+            for ratio in ATTACK_RATIOS:
+                actions.extend(
+                    {
+                        "type": Action.ATTACK.value,
+                        "x": cell["x"],
+                        "y": cell["y"],
+                        "ratio": ratio,
+                    }
+                    for cell in prioritized[:PRUNE_MAX_TARGETS]
+                )
 
         return actions
+
 
 
 class Agent:
@@ -140,14 +171,19 @@ class Agent:
     def get_state(self):
         s = getattr(self.env, "current_state", {}) or {}
         me = s.get("me") or {}
-        candidates = s.get("candidates") or {}
+        candidates = s.get("candidates") or []
 
         in_spawn = bool(s.get("inSpawnPhase", False))
         population = math.floor(normalize_number(me.get("population")) or 0)
         pop_bin = int(math.log2(population + 1))
 
-        empty_count = len(candidates.get("emptyNeighbors") or [])
-        enemy_count = len(candidates.get("enemyNeighbors") or [])
+        # Handle both old and new format
+        if isinstance(candidates, dict):
+            empty_count = len(candidates.get("emptyNeighbors") or [])
+            enemy_count = len(candidates.get("enemyNeighbors") or [])
+        else:
+            empty_count = len([c for c in candidates if c.get("troops", 0) == 0])
+            enemy_count = len([c for c in candidates if c.get("troops", 0) > 0])
 
         return (
             in_spawn,

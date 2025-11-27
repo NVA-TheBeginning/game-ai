@@ -76,11 +76,16 @@ class BotConnection:
             players_map = {
                 p.get("smallID"): p.get("playerID") for p in state.get("players", [])
             }
-            candidates = state.get("candidates", {})
+            candidates = state.get("candidates", [])
             target = None
-            for e in candidates.get("enemyNeighbors", []) + candidates.get(
-                "emptyNeighbors", []
-            ):
+            
+            # Handle both old and new format
+            if isinstance(candidates, dict):
+                all_candidates = candidates.get("enemyNeighbors", []) + candidates.get("emptyNeighbors", [])
+            else:
+                all_candidates = candidates
+            
+            for e in all_candidates:
                 if e.get("x") == action.get("x") and e.get("y") == action.get("y"):
                     target = e
                     break

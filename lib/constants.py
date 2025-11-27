@@ -98,7 +98,7 @@ GRAPH_ENABLED = resolve_setting(
     caster=as_bool,
 )
 
-ATTACK_RATIOS = [0.20, 0.40, 0.60, 0.80]
+ATTACK_RATIOS = [0.30, 0.35, 0.40]
 EPSILON_MIN = 0.02
 EPSILON_DECAY = 0.9995
 
