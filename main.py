@@ -268,7 +268,7 @@ class Agent:
         if not q_values:
             return random.choice(possible_actions)
 
-        best_action_key = max(q_values, key=q_values.get)
+        best_action_key = max(q_values, key=lambda k: q_values[k])
 
         for a in possible_actions:
             if self._get_action_key(a) == best_action_key:

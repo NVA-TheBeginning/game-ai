@@ -153,7 +153,7 @@ class BotConnection(ConnectionHandler):
         self.debug_print_state(state)
         self.env.update_state(state)
 
-    async def on_agent_action(self, _action: dict) -> None:
+    async def on_agent_action(self, action: dict) -> None:
         if self.metrics:
             self.metrics.add_reward(self.agent.reward)
 
@@ -166,24 +166,6 @@ class BotConnection(ConnectionHandler):
                 await self.agent.save()
         except asyncio.CancelledError:
             pass
-
-    async def process_state_tick(self, ws, state: dict) -> None:
-        tick = state.get("tick")
-        if not isinstance(tick, int) or tick == self.last_tick:
-            return
-        self.last_tick = tick
-
-        if self.metrics is not None:
-            self.metrics.update_tick(tick)
-
-        handled_spawn = await self._handle_auto_spawn(ws, state)
-        if handled_spawn:
-            return
-
-        self._update_env(state)
-        await self._process_prev_transition(state, tick)
-        await self._choose_and_send_action(ws, state)
-        await self._maybe_autosave()
 
     async def run(self) -> None:
         backoff = 0.5
