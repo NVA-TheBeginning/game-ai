@@ -132,7 +132,18 @@ class QTable:
     ) -> dict[str, float]:
         async with await self.get_lock():
             if state_key not in self._local_qtable:
-                return dict.fromkeys(action_keys, 0.0)
+                closest_state = None
+                min_distance = float("inf")
+                for s_key in self._local_qtable.keys():
+                    dist = self._state_distance(state_key, s_key)
+                    if dist < min_distance:
+                        min_distance = dist
+                        closest_state = s_key
+
+                if closest_state is None:
+                    return dict.fromkeys(action_keys, 0.0)
+                state_key = closest_state
+
             return {
                 action_key: self._local_qtable[state_key].get(action_key, 0.0)
                 for action_key in action_keys
@@ -158,7 +169,18 @@ class QTable:
     async def get_max_q_value(self, state_key: Any) -> float:
         async with await self.get_lock():
             if state_key not in self._local_qtable:
-                return 0.0
+                closest_state = None
+                min_distance = float("inf")
+                for s_key in self._local_qtable.keys():
+                    dist = self._state_distance(state_key, s_key)
+                    if dist < min_distance:
+                        min_distance = dist
+                        closest_state = s_key
+
+                if closest_state is None:
+                    return 0.0
+                state_key = closest_state
+
             if not self._local_qtable[state_key]:
                 return 0.0
             return max(self._local_qtable[state_key].values())
@@ -166,3 +188,38 @@ class QTable:
     async def get_size(self) -> int:
         async with await self.get_lock():
             return len(self._local_qtable)
+
+    def _state_distance(self, state1: Any, state2: Any) -> float:
+        if not isinstance(state1, tuple) or not isinstance(state2, tuple):
+            return float("inf")
+        if len(state1) != len(state2):
+            return float("inf")
+
+        distance = 0.0
+        for i, (v1, v2) in enumerate(zip(state1, state2)):
+            if i == 0:
+                if v1 != v2:
+                    distance += 1000
+            else:
+                if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                    distance += abs(v1 - v2)
+                elif v1 != v2:
+                    distance += 10
+
+        return distance
+
+    async def find_closest_state(self, target_state: Any) -> Any | None:
+        async with await self.get_lock():
+            if not self._local_qtable:
+                return None
+
+            closest_state = None
+            min_distance = float("inf")
+
+            for state_key in self._local_qtable.keys():
+                dist = self._state_distance(target_state, state_key)
+                if dist < min_distance:
+                    min_distance = dist
+                    closest_state = state_key
+
+            return closest_state

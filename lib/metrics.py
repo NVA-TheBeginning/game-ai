@@ -38,6 +38,9 @@ class GameMetrics:
             else final_tick
         )
 
+        print(
+            f"\nGame ended - Score sent to graph: {self.current_game_score:.2f}, Duration: {duration} ticks"
+        )
         self.game_scores.append(self.current_game_score)
         self.game_durations.append(duration)
 

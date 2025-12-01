@@ -12,10 +12,13 @@ from lib.constants import (
     ATTACK_RATIOS,
     INTERFACE_PORT,
     MODE,
-    PRUNE_MAX_TARGETS,
+    REWARD_HIGH_POPULATION,
+    REWARD_LOW_POPULATION,
     REWARD_MISSED_SPAWN,
     REWARD_SMALL_STEP,
     REWARD_SPAWN_SUCCESS,
+    REWARD_TILE_LOST,
+    REWARD_TILE_WON,
 )
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
@@ -64,26 +67,36 @@ class Environment:
     ) -> float:
         reward = REWARD_SMALL_STEP
 
-        # Create a concise status line that updates on the same line
-        state = self.current_state or {}
-        tick = state.get("tick", 0)
-        in_spawn = state.get("inSpawnPhase", False)
-        me = state.get("me", {})
-        pop = me.get("population", 0)
-        owned = me.get("ownedCount", 0)
-        action_type = action.get("type", "none") if action else "none"
-        
-        status = f"\rTick: {tick:4d} | Phase: {'SPAWN' if in_spawn else 'BATTLE'} | Pop: {pop:4d} | Owned: {owned:3d} | Action: {action_type:6s} | Reward: {reward:+.2f}"
-        print(status, end='', flush=True)
+        old_me = (old_state or {}).get("me", {})
+        new_me = (new_state or {}).get("me", {})
+        old_owned = old_me.get("ownedCount", 0)
+        new_owned = new_me.get("ownedCount", 0)
+
+        tiles_diff = new_owned - old_owned
+        if tiles_diff > 0:
+            reward += tiles_diff * REWARD_TILE_WON
+        elif tiles_diff < 0:
+            reward += abs(tiles_diff) * REWARD_TILE_LOST
+
+        # Population threshold rewards
+        population = new_me.get("population", 0)
+        max_population = new_me.get("maxPopulation", 1)
+
+        if max_population > 0:
+            pop_ratio = population / max_population
+            if pop_ratio < 0.20:
+                reward += REWARD_LOW_POPULATION
+            elif pop_ratio > 0.80:
+                reward += REWARD_HIGH_POPULATION
 
         if action and action.get("type") == Action.SPAWN.value:
             reward += REWARD_SPAWN_SUCCESS
 
         prev_in_spawn = bool((old_state or {}).get("inSpawnPhase", False))
         prev_candidates = (old_state or {}).get("candidates") or []
-        
+
         prev_empty = [c for c in prev_candidates if c.get("troops", 0) == 0]
-        
+
         if (
             prev_in_spawn
             and len(prev_empty) > 0
@@ -95,8 +108,7 @@ class Environment:
 
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         candidates = state.get("candidates") or []
-        
-        # Handle both old format (dict with emptyNeighbors/enemyNeighbors) and new format (list)
+
         if isinstance(candidates, dict):
             empty = candidates.get("emptyNeighbors") or []
             enemy = candidates.get("enemyNeighbors") or []
@@ -106,29 +118,27 @@ class Environment:
             enemy = [c for c in candidates if c.get("troops", 0) > 0]
 
         if state.get("inSpawnPhase"):
-            if empty:
-                return [
-                    {"type": Action.SPAWN.value, "x": cell["x"], "y": cell["y"]}
-                    for cell in empty[:PRUNE_MAX_TARGETS]
-                ]
+            me = state.get("me") or {}
+            has_spawned = me.get("ownedCount", 0) > 0
+            if empty and not has_spawned:
+                return [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
             return [{"type": Action.NONE.value}]
 
-        # Check if we can attack: population must be > 70% of max population
         me = state.get("me") or {}
         population = me.get("population", 0)
         max_population = me.get("maxPopulation", 0)
-        
+
         can_attack = False
         if max_population > 0:
             population_ratio = population / max_population
             can_attack = population_ratio > 0.70
-        
+
         targets = (enemy or []) + (empty or [])
         if not targets:
             return [{"type": Action.NONE.value}]
 
         actions = [{"type": Action.NONE.value}]
-        
+
         # Only add attack actions if we meet the population threshold
         if can_attack:
             prioritized = (enemy or []) + (empty or [])
@@ -141,11 +151,10 @@ class Environment:
                         "y": cell["y"],
                         "ratio": ratio,
                     }
-                    for cell in prioritized[:PRUNE_MAX_TARGETS]
+                    for cell in prioritized
                 )
 
         return actions
-
 
 
 class Agent:
@@ -158,14 +167,16 @@ class Agent:
         self.gamma = 0.95
         self.epsilon = 0.2
         self.history = []
+        self.total_reward = 0
         self._state_lock = asyncio.Lock()
         self.reset()
 
     def reset(self):
         if self.score is not None:
-            self.history.append(self.score)
+            self.history.append(self.total_reward)
         self.iterations = 0
         self.score = 0
+        self.total_reward = 0
         self.state = None
 
     def get_state(self):
@@ -174,22 +185,26 @@ class Agent:
         candidates = s.get("candidates") or []
 
         in_spawn = bool(s.get("inSpawnPhase", False))
-        population = math.floor(normalize_number(me.get("population")) or 0)
-        pop_bin = int(math.log2(population + 1))
+        population = me.get("population", 0)
+        max_population = me.get("maxPopulation", 1)
+        conquest_pct = me.get("conquestPercent", 0)
 
-        # Handle both old and new format
+        # Extract neighbor populations from candidates
+        neighbor_populations = []
         if isinstance(candidates, dict):
-            empty_count = len(candidates.get("emptyNeighbors") or [])
-            enemy_count = len(candidates.get("enemyNeighbors") or [])
+            # Old format
+            enemy_neighbors = candidates.get("enemyNeighbors") or []
+            neighbor_populations = [n.get("troops", 0) for n in enemy_neighbors]
         else:
-            empty_count = len([c for c in candidates if c.get("troops", 0) == 0])
-            enemy_count = len([c for c in candidates if c.get("troops", 0) > 0])
+            # New format: candidates is a list
+            neighbor_populations = [c.get("troops", 0) for c in candidates]
 
         return (
             in_spawn,
-            pop_bin,
-            empty_count,
-            enemy_count,
+            population,
+            max_population,
+            conquest_pct,
+            tuple(neighbor_populations),
         )
 
     async def do(self, action):
@@ -211,7 +226,22 @@ class Agent:
         await self.qtable.set_q_value(prev_state_key, action_key, new_q)
 
         self.score += self.reward
+        self.total_reward += self.reward
         self.iterations += 1
+
+        # Display concise status
+        state = self.env.current_state or {}
+        tick = state.get("tick", 0)
+        me = state.get("me", {})
+        pop = me.get("population", 0)
+        max_pop = me.get("maxPopulation", 1)
+        conquest_pct = me.get("conquestPercent", 0)
+
+        candidates = state.get("candidates") or []
+        neighbor_count = len(candidates)
+
+        status = f"\rTick: {tick:4d} | State: {new_state_key} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Neighbors: {neighbor_count:2d}"
+        print(status, end="", flush=True)
 
         self.state = new_state_key
 
@@ -225,8 +255,12 @@ class Agent:
         if random.random() < self.epsilon:
             return random.choice(possible_actions)
 
+        closest_state = await self.qtable.find_closest_state(self.state)
+        if closest_state is None:
+            return random.choice(possible_actions)
+
         action_keys = [self._get_action_key(a) for a in possible_actions]
-        q_values = await self.qtable.get_state_actions(self.state, action_keys)
+        q_values = await self.qtable.get_state_actions(closest_state, action_keys)
 
         if not q_values:
             return random.choice(possible_actions)
@@ -276,11 +310,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(run_main())
     except KeyboardInterrupt:
-        print("Shutting down, saving qtable...")
-
-        async def save_on_exit():
-            a = Agent(Environment())
-            await a.load()
-            await a.save()
-
-        asyncio.run(save_on_exit())
+        print("\nShutdown complete.")

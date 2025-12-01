@@ -26,7 +26,6 @@ def cli_args() -> argparse.Namespace:
     parser.add_argument("--no-debug", dest="debug", action="store_false")
     parser.add_argument("--print-interval", type=int)
     parser.add_argument("--autosave-interval", type=int)
-    parser.add_argument("--prune-max-targets", type=int)
     parser.add_argument("--graph", dest="graph", action="store_true")
     parser.add_argument("--no-graph", dest="graph", action="store_false")
     parser.set_defaults(debug=None, graph=None)
@@ -85,12 +84,6 @@ AUTOSAVE_INTERVAL = resolve_setting(
     default=300,
     caster=int,
 )
-PRUNE_MAX_TARGETS = resolve_setting(
-    "PRUNE_MAX_TARGETS",
-    args.prune_max_targets,
-    default=50,
-    caster=int,
-)
 GRAPH_ENABLED = resolve_setting(
     "GRAPH_ENABLED",
     args.graph,
@@ -102,6 +95,10 @@ ATTACK_RATIOS = [0.30, 0.35, 0.40]
 EPSILON_MIN = 0.02
 EPSILON_DECAY = 0.9995
 
-REWARD_SPAWN_SUCCESS = 150.0
+REWARD_SPAWN_SUCCESS = 50.0
 REWARD_MISSED_SPAWN = -150.0
 REWARD_SMALL_STEP = -0.1
+REWARD_TILE_WON = 10.0
+REWARD_TILE_LOST = -50.0
+REWARD_LOW_POPULATION = -5.0
+REWARD_HIGH_POPULATION = -5.0
