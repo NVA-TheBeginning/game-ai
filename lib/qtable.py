@@ -134,7 +134,7 @@ class QTable:
             if state_key not in self._local_qtable:
                 closest_state = None
                 min_distance = float("inf")
-                for s_key in self._local_qtable.keys():
+                for s_key in self._local_qtable:
                     dist = self._state_distance(state_key, s_key)
                     if dist < min_distance:
                         min_distance = dist
@@ -171,7 +171,7 @@ class QTable:
             if state_key not in self._local_qtable:
                 closest_state = None
                 min_distance = float("inf")
-                for s_key in self._local_qtable.keys():
+                for s_key in self._local_qtable:
                     dist = self._state_distance(state_key, s_key)
                     if dist < min_distance:
                         min_distance = dist
@@ -196,15 +196,14 @@ class QTable:
             return float("inf")
 
         distance = 0.0
-        for i, (v1, v2) in enumerate(zip(state1, state2)):
+        for i, (v1, v2) in enumerate(zip(state1, state2, strict=True)):
             if i == 0:
                 if v1 != v2:
                     distance += 1000
-            else:
-                if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
-                    distance += abs(v1 - v2)
-                elif v1 != v2:
-                    distance += 10
+            elif isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                distance += abs(v1 - v2)
+            elif v1 != v2:
+                distance += 10
 
         return distance
 
@@ -216,7 +215,7 @@ class QTable:
             closest_state = None
             min_distance = float("inf")
 
-            for state_key in self._local_qtable.keys():
+            for state_key in self._local_qtable:
                 dist = self._state_distance(target_state, state_key)
                 if dist < min_distance:
                     min_distance = dist

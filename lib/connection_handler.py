@@ -71,5 +71,6 @@ class ConnectionHandler(ABC):
     async def process_message(self, message: str) -> None:
         pass
 
+    @abstractmethod
     async def on_agent_action(self, action: dict) -> None:
         pass

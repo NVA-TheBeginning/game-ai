@@ -1,5 +1,4 @@
 import asyncio
-import math
 import random
 import sys
 from enum import Enum
@@ -22,7 +21,11 @@ from lib.constants import (
 )
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
-from lib.utils import normalize_number
+
+# Population thresholds
+LOW_POPULATION_THRESHOLD = 0.20
+HIGH_POPULATION_THRESHOLD = 0.80
+ATTACK_POPULATION_THRESHOLD = 0.70
 
 
 class Action(Enum):
@@ -84,9 +87,9 @@ class Environment:
 
         if max_population > 0:
             pop_ratio = population / max_population
-            if pop_ratio < 0.20:
+            if pop_ratio < LOW_POPULATION_THRESHOLD:
                 reward += REWARD_LOW_POPULATION
-            elif pop_ratio > 0.80:
+            elif pop_ratio > HIGH_POPULATION_THRESHOLD:
                 reward += REWARD_HIGH_POPULATION
 
         if action and action.get("type") == Action.SPAWN.value:
@@ -131,7 +134,7 @@ class Environment:
         can_attack = False
         if max_population > 0:
             population_ratio = population / max_population
-            can_attack = population_ratio > 0.70
+            can_attack = population_ratio > ATTACK_POPULATION_THRESHOLD
 
         targets = (enemy or []) + (empty or [])
         if not targets:

@@ -1,4 +1,3 @@
-import asyncio
 import json
 from typing import TYPE_CHECKING
 
@@ -26,7 +25,7 @@ class ServerInterface(ConnectionHandler):
 
         self.env.update_state(state)
 
-    async def handle_connection(self, ws: "ServerConnection") -> None:
+    async def handle_connection(self, ws: ServerConnection) -> None:
         hello = await ws.recv()
         try:
             msg = json.loads(hello)
