@@ -33,6 +33,7 @@ class BotConnection(ConnectionHandler):
         self.current_game_id: str | None = None
         self.has_spawned: bool = False
         self.metrics = GameMetrics() if GRAPH_ENABLED else None
+        self.game_count = 0
 
     def debug_print_state(self, state: dict) -> None:
         if DEBUG_MODE:
@@ -136,9 +137,6 @@ class BotConnection(ConnectionHandler):
             if self.metrics:
                 self.metrics.start_game()
             return
-        if msg_type == "start":
-            print(f"Received start message for game {self.current_game_id}")
-            return
         if msg_type != "state":
             return
 
@@ -169,9 +167,11 @@ class BotConnection(ConnectionHandler):
                 self.has_spawned = False
                 self.running = True
 
+                print(f"\n=== Starting Game #{self.game_count} ===")
                 print(
                     f"Connecting to server {SERVER_WS} with clientID={self.client_id}"
                 )
+                self.game_count += 1
                 try:
                     async with websockets.connect(SERVER_WS) as ws:
                         hello = {

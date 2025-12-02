@@ -106,3 +106,6 @@ REWARD_TILE_LOST = -50.0
 REWARD_VERY_LOW_POPULATION = -100.0
 REWARD_VERY_HIGH_POPULATION = -100.0
 REWARD_CONQUEST_WIN = 500.0
+
+# Q-Table state matching configuration
+DISTANCE_THRESHOLD = 10  # Maximum distance for state matching (returns 0.0 if exceeded)

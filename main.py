@@ -1,4 +1,5 @@
 import asyncio
+import math
 import random
 import sys
 from enum import Enum
@@ -26,6 +27,22 @@ from lib.server_interface import ServerInterface
 
 LOW_POPULATION_THRESHOLD = 0.20
 HIGH_POPULATION_THRESHOLD = 0.80
+
+SPAWN_PHASE_DURATION = 100
+MAX_NEIGHBORS_DISPLAY = 5
+
+
+def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
+    if enemy_troops == 0:
+        return 100
+    if my_troops == 0:
+        return -100
+
+    ratio = my_troops / enemy_troops
+    log_ratio = math.log10(ratio)
+    clamped = max(-1.0, min(1.0, log_ratio))  # Clamp to [-1, 1]
+
+    return int(clamped * 100)
 
 
 class Action(Enum):
@@ -98,7 +115,10 @@ class Environment:
         return 0.0
 
     def rewards_spawn(
-        self, old_state: dict[str, Any], action: dict[str, Any] | None
+        self,
+        old_state: dict[str, Any],
+        new_state: dict[str, Any],
+        action: dict[str, Any] | None,
     ) -> float:
         reward = 0.0
 
@@ -109,11 +129,10 @@ class Environment:
         prev_candidates = (old_state or {}).get("candidates") or []
         prev_empty = [c for c in prev_candidates if c.get("troops", 0) == 0]
 
-        if (
-            prev_in_spawn
-            and len(prev_empty) > 0
-            and (not action or action.get("type") != Action.SPAWN.value)
-        ):
+        new_me = (new_state or {}).get("me", {})
+        has_population = new_me.get("population", 0) > 0
+
+        if prev_in_spawn and len(prev_empty) > 0 and not has_population:
             reward += REWARD_MISSED_SPAWN
 
         return reward
@@ -124,12 +143,16 @@ class Environment:
         new_state: dict[str, Any],
         action: dict[str, Any] | None,
     ) -> float:
+        tick = new_state.get("tick", 0)
+
+        if tick < SPAWN_PHASE_DURATION:
+            return self.rewards_spawn(old_state, new_state, action)
+
         return (
             REWARD_SMALL_STEP
             + self.rewards_territory(old_state, new_state)
             + self.rewards_population(new_state)
             + self.rewards_conquest(new_state)
-            + self.rewards_spawn(old_state, action)
         )
 
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -139,7 +162,6 @@ class Environment:
             empty = candidates.get("emptyNeighbors") or []
             enemy = candidates.get("enemyNeighbors") or []
         else:
-            # New format: candidates is a list, wilderness cells have troops=0
             empty = [c for c in candidates if c.get("troops", 0) == 0]
             enemy = [c for c in candidates if c.get("troops", 0) > 0]
 
@@ -177,7 +199,7 @@ class Agent:
         self.qtable = QTable.get_instance()
         self.score = None
         self.alpha = 0.1
-        self.gamma = 0.95
+        self.gamma = 0.99
         self.epsilon = 0.05
         self.history = []
         self.total_reward = 0
@@ -206,20 +228,27 @@ class Agent:
         max_population = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
 
+        if max_population > 0:
+            population_pct = int((population / max_population) * 100)
+        else:
+            population_pct = 0
+
         neighbor_ratios = []
         if isinstance(candidates, dict):
             enemy_neighbors = candidates.get("enemyNeighbors") or []
-            neighbor_ratios = [
-                int(n.get("troops", 0) / max(population, 1)) for n in enemy_neighbors
-            ]
+            for neighbor in enemy_neighbors:
+                enemy_troops = neighbor.get("troops", 0)
+                ratio = calculate_neighbor_ratio(population, enemy_troops)
+                neighbor_ratios.append(ratio)
         else:
-            neighbor_ratios = [
-                int(c.get("troops", 0) / max(population, 1)) for c in candidates
-            ]
+            for candidate in candidates:
+                enemy_troops = candidate.get("troops", 0)
+                ratio = calculate_neighbor_ratio(population, enemy_troops)
+                neighbor_ratios.append(ratio)
 
         return (
             in_spawn,
-            population,
+            population_pct,
             max_population,
             conquest_pct,
             tuple(neighbor_ratios),
@@ -247,7 +276,6 @@ class Agent:
         self.total_reward += self.reward
         self.iterations += 1
 
-        # Display concise status
         state = self.env.current_state or {}
         tick = state.get("tick", 0)
         me = state.get("me", {})
@@ -255,8 +283,16 @@ class Agent:
         max_pop = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
 
-        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions}"
-        print(status, end="", flush=True)
+        in_spawn, pop_pct, max_pop_state, conquest_state, neighbor_ratios = (
+            new_state_key
+        )
+        neighbors_str = ",".join(str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY])
+        if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
+            neighbors_str += "..."
+        state_str = f"S:({int(in_spawn)},{pop_pct},{max_pop_state},{conquest_state},({neighbors_str}))"
+
+        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
+        print(status + " " * 20, end="", flush=True)
 
         self.state = new_state_key
 

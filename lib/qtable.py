@@ -6,9 +6,16 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from lib.constants import QTABLE_FILE
+from lib.constants import DISTANCE_THRESHOLD, QTABLE_FILE
 
 _initialization_lock = threading.Lock()
+
+# State tuple indices
+STATE_INDEX_IN_SPAWN = 0
+STATE_INDEX_POPULATION_PCT = 1
+STATE_INDEX_MAX_POPULATION = 2
+STATE_INDEX_CONQUEST_PCT = 3
+STATE_INDEX_NEIGHBOR_RATIOS = 4
 
 
 class QTable:
@@ -140,8 +147,10 @@ class QTable:
                         min_distance = dist
                         closest_state = s_key
 
-                if closest_state is None:
+                # Check distance threshold
+                if closest_state is None or min_distance > DISTANCE_THRESHOLD:
                     return dict.fromkeys(action_keys, 0.0)
+
                 state_key = closest_state
 
             return {
@@ -162,7 +171,11 @@ class QTable:
         async with await self.get_lock():
             if state_key not in self._local_qtable:
                 self._local_qtable[state_key] = {}
-                print(f"\rNew State: {state_key} | Total states: {len(self._local_qtable)}", end="", flush=True)
+                print(
+                    f"\rNew State: {state_key} | Total states: {len(self._local_qtable)}",
+                    end="",
+                    flush=True,
+                )
             for action_key in action_keys:
                 if action_key not in self._local_qtable[state_key]:
                     self._local_qtable[state_key][action_key] = 0.0
@@ -178,8 +191,9 @@ class QTable:
                         min_distance = dist
                         closest_state = s_key
 
-                if closest_state is None:
+                if closest_state is None or min_distance > DISTANCE_THRESHOLD:
                     return 0.0
+
                 state_key = closest_state
 
             if not self._local_qtable[state_key]:
@@ -197,10 +211,27 @@ class QTable:
             return float("inf")
 
         distance = 0.0
+
         for i, (v1, v2) in enumerate(zip(state1, state2, strict=True)):
-            if i == 0:
+            if i == STATE_INDEX_IN_SPAWN:
                 if v1 != v2:
-                    distance += 1000
+                    distance += 10
+            elif i in {STATE_INDEX_POPULATION_PCT, STATE_INDEX_MAX_POPULATION}:
+                if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                    distance += abs(v1 - v2) * 1.0
+            elif i == STATE_INDEX_CONQUEST_PCT:
+                if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                    distance += abs(v1 - v2) * 0.1
+            elif i == STATE_INDEX_NEIGHBOR_RATIOS:
+                if isinstance(v1, tuple) and isinstance(v2, tuple):
+                    if len(v1) == len(v2):
+                        for n1, n2 in zip(v1, v2, strict=True):
+                            if isinstance(n1, (int, float)) and isinstance(
+                                n2, (int, float)
+                            ):
+                                distance += abs(n1 - n2) * 1.0
+                    else:
+                        distance += 100
             elif isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
                 distance += abs(v1 - v2)
             elif v1 != v2:
