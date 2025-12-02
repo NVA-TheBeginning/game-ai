@@ -9,23 +9,23 @@ from websockets.asyncio.server import serve
 from lib.bot_connection import BotConnection
 from lib.constants import (
     ATTACK_RATIOS,
+    CONQUEST_WIN_THRESHOLD,
     INTERFACE_PORT,
     MODE,
-    REWARD_HIGH_POPULATION,
-    REWARD_LOW_POPULATION,
+    REWARD_CONQUEST_WIN,
     REWARD_MISSED_SPAWN,
     REWARD_SMALL_STEP,
     REWARD_SPAWN_SUCCESS,
     REWARD_TILE_LOST,
     REWARD_TILE_WON,
+    REWARD_VERY_HIGH_POPULATION,
+    REWARD_VERY_LOW_POPULATION,
 )
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
 
-# Population thresholds
 LOW_POPULATION_THRESHOLD = 0.20
 HIGH_POPULATION_THRESHOLD = 0.80
-ATTACK_POPULATION_THRESHOLD = 0.70
 
 
 class Action(Enum):
@@ -62,42 +62,51 @@ class Environment:
 
         return self.current_state, reward
 
-    def calculate_reward(
-        self,
-        old_state: dict[str, Any],
-        new_state: dict[str, Any],
-        action: dict[str, Any] | None,
+    def rewards_territory(
+        self, old_state: dict[str, Any], new_state: dict[str, Any]
     ) -> float:
-        reward = REWARD_SMALL_STEP
-
         old_me = (old_state or {}).get("me", {})
         new_me = (new_state or {}).get("me", {})
         old_owned = old_me.get("ownedCount", 0)
         new_owned = new_me.get("ownedCount", 0)
-
         tiles_diff = new_owned - old_owned
-        if tiles_diff > 0:
-            reward += tiles_diff * REWARD_TILE_WON
-        elif tiles_diff < 0:
-            reward += abs(tiles_diff) * REWARD_TILE_LOST
 
-        # Population threshold rewards
+        if tiles_diff > 0:
+            return tiles_diff * REWARD_TILE_WON
+        if tiles_diff < 0:
+            return abs(tiles_diff) * REWARD_TILE_LOST
+        return 0.0
+
+    def rewards_population(self, new_state: dict[str, Any]) -> float:
+        new_me = (new_state or {}).get("me", {})
         population = new_me.get("population", 0)
         max_population = new_me.get("maxPopulation", 1)
 
         if max_population > 0:
             pop_ratio = population / max_population
             if pop_ratio < LOW_POPULATION_THRESHOLD:
-                reward += REWARD_LOW_POPULATION
-            elif pop_ratio > HIGH_POPULATION_THRESHOLD:
-                reward += REWARD_HIGH_POPULATION
+                return REWARD_VERY_LOW_POPULATION
+            if pop_ratio > HIGH_POPULATION_THRESHOLD:
+                return REWARD_VERY_HIGH_POPULATION
+        return 0.0
+
+    def rewards_conquest(self, new_state: dict[str, Any]) -> float:
+        new_me = (new_state or {}).get("me", {})
+        conquest_pct = new_me.get("conquestPercent", 0)
+        if conquest_pct >= CONQUEST_WIN_THRESHOLD:
+            return REWARD_CONQUEST_WIN
+        return 0.0
+
+    def rewards_spawn(
+        self, old_state: dict[str, Any], action: dict[str, Any] | None
+    ) -> float:
+        reward = 0.0
 
         if action and action.get("type") == Action.SPAWN.value:
             reward += REWARD_SPAWN_SUCCESS
 
         prev_in_spawn = bool((old_state or {}).get("inSpawnPhase", False))
         prev_candidates = (old_state or {}).get("candidates") or []
-
         prev_empty = [c for c in prev_candidates if c.get("troops", 0) == 0]
 
         if (
@@ -108,6 +117,20 @@ class Environment:
             reward += REWARD_MISSED_SPAWN
 
         return reward
+
+    def calculate_reward(
+        self,
+        old_state: dict[str, Any],
+        new_state: dict[str, Any],
+        action: dict[str, Any] | None,
+    ) -> float:
+        return (
+            REWARD_SMALL_STEP
+            + self.rewards_territory(old_state, new_state)
+            + self.rewards_population(new_state)
+            + self.rewards_conquest(new_state)
+            + self.rewards_spawn(old_state, action)
+        )
 
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         candidates = state.get("candidates") or []
@@ -127,35 +150,22 @@ class Environment:
                 return [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
             return [{"type": Action.NONE.value}]
 
-        me = state.get("me") or {}
-        population = me.get("population", 0)
-        max_population = me.get("maxPopulation", 0)
-
-        can_attack = False
-        if max_population > 0:
-            population_ratio = population / max_population
-            can_attack = population_ratio > ATTACK_POPULATION_THRESHOLD
-
         targets = (enemy or []) + (empty or [])
         if not targets:
             return [{"type": Action.NONE.value}]
 
         actions = [{"type": Action.NONE.value}]
-
-        # Only add attack actions if we meet the population threshold
-        if can_attack:
-            prioritized = (enemy or []) + (empty or [])
-            # Use attack ratios between 30% and 40% to keep population between 40-70%
-            for ratio in ATTACK_RATIOS:
-                actions.extend(
-                    {
-                        "type": Action.ATTACK.value,
-                        "x": cell["x"],
-                        "y": cell["y"],
-                        "ratio": ratio,
-                    }
-                    for cell in prioritized
-                )
+        prioritized = (enemy or []) + (empty or [])
+        for ratio in ATTACK_RATIOS:
+            actions.extend(
+                {
+                    "type": Action.ATTACK.value,
+                    "x": cell["x"],
+                    "y": cell["y"],
+                    "ratio": ratio,
+                }
+                for cell in prioritized
+            )
 
         return actions
 
@@ -181,6 +191,10 @@ class Agent:
         self.score = 0
         self.total_reward = 0
         self.state = None
+        self.random_actions = 0
+        self.qtable_actions = 0
+        self.wait_actions = 0
+        self.attack_actions = 0
 
     def get_state(self):
         s = getattr(self.env, "current_state", {}) or {}
@@ -192,22 +206,23 @@ class Agent:
         max_population = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
 
-        # Extract neighbor populations from candidates
-        neighbor_populations = []
+        neighbor_ratios = []
         if isinstance(candidates, dict):
-            # Old format
             enemy_neighbors = candidates.get("enemyNeighbors") or []
-            neighbor_populations = [n.get("troops", 0) for n in enemy_neighbors]
+            neighbor_ratios = [
+                int(n.get("troops", 0) / max(population, 1)) for n in enemy_neighbors
+            ]
         else:
-            # New format: candidates is a list
-            neighbor_populations = [c.get("troops", 0) for c in candidates]
+            neighbor_ratios = [
+                int(c.get("troops", 0) / max(population, 1)) for c in candidates
+            ]
 
         return (
             in_spawn,
             population,
             max_population,
             conquest_pct,
-            tuple(neighbor_populations),
+            tuple(neighbor_ratios),
         )
 
     async def do(self, action):
@@ -240,10 +255,7 @@ class Agent:
         max_pop = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
 
-        candidates = state.get("candidates") or []
-        neighbor_count = len(candidates)
-
-        status = f"\rTick: {tick:4d} | State: {new_state_key} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Neighbors: {neighbor_count:2d}"
+        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions}"
         print(status, end="", flush=True)
 
         self.state = new_state_key
@@ -255,26 +267,38 @@ class Agent:
         if not possible_actions:
             return {"type": Action.NONE.value}
 
-        if random.random() < self.epsilon:
-            return random.choice(possible_actions)
+        if (
+            random.random() < self.epsilon
+            or (closest_state := await self.qtable.find_closest_state(self.state))
+            is None
+        ):
+            self.random_actions += 1
+            action = random.choice(possible_actions)
+        else:
+            action_keys = [self._get_action_key(a) for a in possible_actions]
+            q_values = await self.qtable.get_state_actions(closest_state, action_keys)
 
-        closest_state = await self.qtable.find_closest_state(self.state)
-        if closest_state is None:
-            return random.choice(possible_actions)
+            if not q_values:
+                self.random_actions += 1
+                action = random.choice(possible_actions)
+            else:
+                best_action_key = max(q_values, key=lambda k: q_values[k])
+                action = None
+                for a in possible_actions:
+                    if self._get_action_key(a) == best_action_key:
+                        self.qtable_actions += 1
+                        action = a
+                        break
+                if action is None:
+                    self.random_actions += 1
+                    action = random.choice(possible_actions)
 
-        action_keys = [self._get_action_key(a) for a in possible_actions]
-        q_values = await self.qtable.get_state_actions(closest_state, action_keys)
+        if action.get("type") == Action.NONE.value:
+            self.wait_actions += 1
+        elif action.get("type") == Action.ATTACK.value:
+            self.attack_actions += 1
 
-        if not q_values:
-            return random.choice(possible_actions)
-
-        best_action_key = max(q_values, key=lambda k: q_values[k])
-
-        for a in possible_actions:
-            if self._get_action_key(a) == best_action_key:
-                return a
-
-        return random.choice(possible_actions)
+        return action
 
     def _get_action_key(self, action: dict[str, Any]) -> str:
         action_type = action.get("type")

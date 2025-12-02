@@ -72,5 +72,5 @@ class ConnectionHandler(ABC):
         pass
 
     @abstractmethod
-    async def on_agent_action(self, action: dict) -> None:
+    async def on_agent_action(self, _action: dict) -> None:
         pass

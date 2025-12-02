@@ -25,6 +25,9 @@ class ServerInterface(ConnectionHandler):
 
         self.env.update_state(state)
 
+    async def on_agent_action(self, _action: dict) -> None:
+        pass
+
     async def handle_connection(self, ws: ServerConnection) -> None:
         hello = await ws.recv()
         try:
@@ -33,6 +36,7 @@ class ServerInterface(ConnectionHandler):
         except Exception:
             print("Bot connected; failed reading hello message")
 
+        self.agent.total_reward = 0
         self.running = True
         await self.run_connection(ws)
 

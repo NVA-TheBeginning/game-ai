@@ -153,7 +153,7 @@ class BotConnection(ConnectionHandler):
         self.debug_print_state(state)
         self.env.update_state(state)
 
-    async def on_agent_action(self, action: dict) -> None:
+    async def on_agent_action(self, _action: dict) -> None:
         if self.metrics:
             self.metrics.add_reward(self.agent.reward)
 
