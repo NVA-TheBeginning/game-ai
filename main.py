@@ -178,7 +178,7 @@ class Agent:
         self.score = None
         self.alpha = 0.1
         self.gamma = 0.95
-        self.epsilon = 0.2
+        self.epsilon = 0.05
         self.history = []
         self.total_reward = 0
         self._state_lock = asyncio.Lock()

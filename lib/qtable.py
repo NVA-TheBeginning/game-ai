@@ -162,6 +162,7 @@ class QTable:
         async with await self.get_lock():
             if state_key not in self._local_qtable:
                 self._local_qtable[state_key] = {}
+                print(f"\rNew State: {state_key} | Total states: {len(self._local_qtable)}", end="", flush=True)
             for action_key in action_keys:
                 if action_key not in self._local_qtable[state_key]:
                     self._local_qtable[state_key][action_key] = 0.0

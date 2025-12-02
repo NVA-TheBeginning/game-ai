@@ -58,9 +58,6 @@ class BotConnection(ConnectionHandler):
 
     async def send_action(self, ws, action: dict) -> None:
         if action.get("type") == Action.SPAWN.value:
-            if self.has_spawned:
-                print("WARNING: Attempting to spawn but already spawned this game!")
-                return
             player_id = await self._ensure_player_id()
             intent_msg = {
                 "type": "intent",
@@ -110,10 +107,6 @@ class BotConnection(ConnectionHandler):
             except Exception:
                 troops = 0
 
-            print(
-                f"\nATTACK: Sending {troops} troops ({troops_ratio:.0%} of {my_troops}) to ({action.get('x')}, {action.get('y')}), targetID={target_player_id}"
-            )
-
             intent_attack = {
                 "type": "intent",
                 "clientID": self.client_id,
@@ -126,7 +119,6 @@ class BotConnection(ConnectionHandler):
                     "troops": troops,
                 },
             }
-            print(f"Sending attack intent: {intent_attack}")
             await self.send_intent(ws, intent_attack, "ATTACK")
 
     async def process_message(self, message: str) -> None:
