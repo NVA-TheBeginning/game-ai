@@ -55,7 +55,7 @@ class Environment:
         self.current_state = state
         self._state_event.set()
 
-    async def do(self, _pos, action):
+    async def do(self, action):
         await self._action_queue.put(action)
 
         self._state_event.clear()
