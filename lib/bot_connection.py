@@ -4,6 +4,7 @@ import random
 import string
 
 import websockets
+from websockets import ConnectionClosed
 
 from lib.connection_handler import ConnectionHandler
 from lib.constants import (
@@ -16,6 +17,7 @@ from lib.constants import (
 )
 from lib.metrics import GameMetrics
 from lib.utils import Action
+
 
 
 def make_id(length: int = 8) -> str:
@@ -207,6 +209,25 @@ class BotConnection(ConnectionHandler):
         except asyncio.CancelledError:
             pass
 
+    async def start_ping_loop(self, ws):
+        print("Start pinging like a boss")
+        try:
+            while self.running:
+                await asyncio.sleep(10)
+                ping_msg = {
+                    "type": "ping",
+                    "clientID": self.client_id,
+                    "gameID": self.current_game_id,
+                }
+                try:
+                    await self.send_intent(ws, ping_msg, "PING")
+                except ConnectionClosed:
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"Ping loop error: {e}")
+
     async def run(self) -> None:
         backoff = 0.5
 
@@ -222,6 +243,7 @@ class BotConnection(ConnectionHandler):
                     f"Connecting to server {SERVER_WS} with clientID={self.client_id}"
                 )
                 self.game_count += 1
+
                 try:
                     async with websockets.connect(SERVER_WS) as ws:
                         hello = {
@@ -231,9 +253,10 @@ class BotConnection(ConnectionHandler):
                             "username": self.username,
                         }
                         await self.send_intent(ws, hello, "HELLO")
-
+                        ping_task = asyncio.create_task(self.start_ping_loop(ws))
                         autosave_task = asyncio.create_task(self.autosave_loop())
-                        await self.run_connection(ws, [autosave_task])
+
+                        await self.run_connection(ws, [autosave_task, ping_task])
 
                 except Exception as e:
                     print("Connection error or game ended:", repr(e))
