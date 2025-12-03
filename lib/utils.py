@@ -11,9 +11,6 @@ class Action(Enum):
 
 
 def format_number(v: float | None, fmt: str = "{:.2f}") -> str:
-    """
-    Format a number for display purposes with fallback handling.
-    """
     if v is None:
         return "N/A"
     try:
@@ -26,9 +23,6 @@ def format_number(v: float | None, fmt: str = "{:.2f}") -> str:
 
 
 def normalize_number(v: Any) -> int | float | None:
-    """
-    Normalize a value to int or float for state processing.
-    """
     if v is None:
         return None
     try:

@@ -1,18 +1,32 @@
-import contextlib
 import json
 from typing import TYPE_CHECKING
 
-from lib.constants import DEBUG_MODE
-from lib.utils import Action, get_action_key
+from lib.connection_handler import ConnectionHandler
 
 if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
 
-class ServerInterface:
+class ServerInterface(ConnectionHandler):
     def __init__(self, agent, env):
-        self.agent = agent
-        self.env = env
+        super().__init__(agent, env)
+
+    async def send_action(self, ws, action: dict) -> None:
+        await ws.send(json.dumps(action))
+
+    async def process_message(self, message: str) -> None:
+        try:
+            state = json.loads(message)
+        except Exception:
+            return
+
+        if state.get("type") != "state":
+            return
+
+        self.env.update_state(state)
+
+    async def on_agent_action(self, _action: dict) -> None:
+        pass
 
     async def handle_connection(self, ws: ServerConnection) -> None:
         hello = await ws.recv()
@@ -22,81 +36,9 @@ class ServerInterface:
         except Exception:
             print("Bot connected; failed reading hello message")
 
-        last_tick = None
-        spawn_sent = False
-        try:
-            async for message in ws:
-                try:
-                    state = json.loads(message)
-                except Exception:
-                    continue
+        self.agent.total_reward = 0
+        self.running = True
+        await self.run_connection(ws)
 
-                if state.get("type") != "state":
-                    continue
-
-                tick = state.get("tick")
-                if tick == last_tick:
-                    continue
-                last_tick = tick
-                try:
-                    if hasattr(self.env, "update_state") and callable(
-                        self.env.update_state
-                    ):
-                        self.env.update_state(state)
-                    elif isinstance(self.env, dict):
-                        self.env["previous_state"] = self.env.get("current_state")
-                        self.env["current_state"] = state
-                    else:
-                        try:
-                            self.env.previous_state = getattr(
-                                self.env, "current_state", None
-                            )
-                            self.env.current_state = state
-                        except Exception as e:
-                            print(f"Failed to set previous/current state: {e}")
-                except Exception:
-                    pass
-
-                prev_state_action = (
-                    await self.agent.get_previous_state_action_if_ready()
-                )
-                if prev_state_action is not None:
-                    prev_state, prev_action_copy = prev_state_action
-                    reward = self.env.calculate_reward(
-                        prev_state, state, prev_action_copy
-                    )
-                    await self.agent.update(state, reward)
-                    prev_action_str = get_action_key(prev_action_copy)
-                    if DEBUG_MODE:
-                        qtable_size = await self.agent.qtable.get_size()
-                        print(
-                            f"Tick {tick}: Action={prev_action_str}, Reward={reward:.2f}, QTable size={qtable_size}"
-                        )
-
-                possible_actions = self.env.get_possible_actions(state)
-                action = await self.agent.best_action(state, possible_actions)
-                if action is not None:
-                    if action.get("type") != Action.NONE.value:
-                        await ws.send(json.dumps(action))
-                    elif DEBUG_MODE:
-                        print(f"Tick {tick}: Agent chose to do nothing")
-
-                    await self.agent.set_previous_state_action(state, action)
-
-                    with contextlib.suppress(Exception):
-                        await self.agent.save()
-
-                try:
-                    if (not spawn_sent) and tick == 1:
-                        spawn_intent = {"type": Action.SPAWN.value, "x": -1, "y": -1}
-                        await ws.send(json.dumps(spawn_intent))
-                        print("Sent spawn intent to bot:", spawn_intent)
-                        spawn_sent = True
-                except Exception:
-                    print("Failed sending spawn intent to bot")
-        finally:
-            print("\nConnection closed, saving Q-table...")
-            try:
-                await self.agent.save()
-            except Exception as e:
-                print(f"Exception occurred while saving agent in finally block: {e}")
+        print("\nConnection closed, saving Q-table...")
+        await self.cleanup()
