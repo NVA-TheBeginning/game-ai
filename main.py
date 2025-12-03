@@ -51,10 +51,6 @@ class Action(Enum):
     NONE = "none"
 
 
-def arg_max(table):
-    return max(table, key=table.get)
-
-
 class Environment:
     def __init__(self):
         self.current_state: dict[str, Any] | None = None
