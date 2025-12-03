@@ -1,22 +1,14 @@
-FROM python:3.14-slim AS builder
+FROM python:3.14-slim
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-editable
+COPY pyproject.toml uv.lock /app/
 
-COPY . /app
+RUN uv sync --locked --no-install-project --no-editable
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable
-
-FROM python:3.14-slim
-
-COPY --from=builder --chown=app:app /app/.venv /app/.venv
-COPY --from=builder --chown=app:app /app /app
+COPY . /app/
 
 CMD ["/app/.venv/bin/python3", "/app/main.py"]

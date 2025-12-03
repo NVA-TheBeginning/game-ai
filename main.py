@@ -245,7 +245,7 @@ class Agent:
     async def do(self, action):
         previous_state = self.state
 
-        self.state, self.reward = await self.env.do(self.state, action)
+        self.state, self.reward = await self.env.do(action)
 
         new_state_key = self.get_state()
         prev_state_key = previous_state
