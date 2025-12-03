@@ -155,6 +155,7 @@ class BotConnection(ConnectionHandler):
                 await asyncio.sleep(AUTOSAVE_INTERVAL)
                 await self.agent.save()
         except asyncio.CancelledError:
+            # Task cancelled, exit autosave loop gracefully
             pass
 
     async def run(self) -> None:
