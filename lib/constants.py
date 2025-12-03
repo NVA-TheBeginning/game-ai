@@ -109,3 +109,9 @@ REWARD_CONQUEST_WIN = 500.0
 
 # Q-Table state matching configuration
 DISTANCE_THRESHOLD = 10  # Maximum distance for state matching (returns 0.0 if exceeded)
+
+# Environment thresholds
+LOW_POPULATION_THRESHOLD = 0.20
+HIGH_POPULATION_THRESHOLD = 0.80
+SPAWN_PHASE_DURATION = 100
+MAX_NEIGHBORS_DISPLAY = 5

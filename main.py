@@ -10,7 +10,10 @@ from lib.bot_connection import BotConnection
 from lib.constants import (
     ATTACK_RATIOS,
     CONQUEST_WIN_THRESHOLD,
+    HIGH_POPULATION_THRESHOLD,
     INTERFACE_PORT,
+    LOW_POPULATION_THRESHOLD,
+    MAX_NEIGHBORS_DISPLAY,
     MODE,
     REWARD_CONQUEST_WIN,
     REWARD_MISSED_SPAWN,
@@ -20,16 +23,11 @@ from lib.constants import (
     REWARD_TILE_WON,
     REWARD_VERY_HIGH_POPULATION,
     REWARD_VERY_LOW_POPULATION,
+    SPAWN_PHASE_DURATION,
 )
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
 from lib.utils import Action
-
-LOW_POPULATION_THRESHOLD = 0.20
-HIGH_POPULATION_THRESHOLD = 0.80
-
-SPAWN_PHASE_DURATION = 100
-MAX_NEIGHBORS_DISPLAY = 5
 
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
