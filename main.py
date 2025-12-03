@@ -286,7 +286,9 @@ class Agent:
         in_spawn, pop_pct, max_pop_state, conquest_state, neighbor_ratios = (
             new_state_key
         )
-        neighbors_str = ",".join(str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY])
+        neighbors_str = ",".join(
+            str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
+        )
         if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
             neighbors_str += "..."
         state_str = f"S:({int(in_spawn)},{pop_pct},{max_pop_state},{conquest_state},({neighbors_str}))"
