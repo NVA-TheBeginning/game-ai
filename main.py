@@ -2,7 +2,6 @@ import asyncio
 import math
 import random
 import sys
-from enum import Enum
 from typing import Any
 
 from websockets.asyncio.server import serve
@@ -24,6 +23,7 @@ from lib.constants import (
 )
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
+from lib.utils import Action
 
 LOW_POPULATION_THRESHOLD = 0.20
 HIGH_POPULATION_THRESHOLD = 0.80
@@ -43,12 +43,6 @@ def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
     clamped = max(-1.0, min(1.0, log_ratio))  # Clamp to [-1, 1]
 
     return int(clamped * 100)
-
-
-class Action(Enum):
-    SPAWN = "spawn"
-    ATTACK = "attack"
-    NONE = "none"
 
 
 class Environment:
