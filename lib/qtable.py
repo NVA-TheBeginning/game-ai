@@ -253,4 +253,6 @@ class QTable:
                     min_distance = dist
                     closest_state = state_key
 
+            if closest_state is None or min_distance > DISTANCE_THRESHOLD:
+                return None
             return closest_state
