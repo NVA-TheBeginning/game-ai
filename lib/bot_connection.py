@@ -52,75 +52,123 @@ class BotConnection(ConnectionHandler):
         except Exception as e:
             print(f"Failed to send {log_prefix}:", e)
 
-    async def _ensure_player_id(self) -> str:
-        if self.player_id is None:
-            self.player_id = make_id(8)
-        return self.player_id
+    def extract_player_id_from_state(self, state: dict) -> str | None:
+        me = state.get("me", {})
+        me_small_id = me.get("smallID")
+
+        if me_small_id is None or me_small_id < 0:
+            return None
+
+        players = state.get("players", [])
+        for player in players:
+            if player.get("smallID") == me_small_id:
+                return player.get("playerID")
+
+        return None
+
+    def sync_player_state(self, state: dict) -> None:
+        state_player_id = self.extract_player_id_from_state(state)
+        if state_player_id:
+            self.player_id = state_player_id
+            me = state.get("me", {})
+            if me.get("ownedCount", 0) > 0 or me.get("population", 0) > 0:
+                self.has_spawned = True
 
     async def send_action(self, ws, action: dict) -> None:
-        if action.get("type") == Action.SPAWN.value:
-            player_id = await self._ensure_player_id()
-            intent_msg = {
-                "type": "intent",
+        state = self.env.current_state or {}
+        self.sync_player_state(state)
+
+        action_type = action.get("type")
+
+        if action_type == Action.SPAWN.value:
+            await self.handle_spawn_action(ws, action)
+
+        elif action_type == Action.ATTACK.value:
+            await self.handle_attack_action(ws, action, state)
+
+    async def handle_spawn_action(self, ws, action: dict) -> None:
+        if self.has_spawned:
+            return
+
+        player_id = self.player_id or make_id(8)
+        self.player_id = player_id
+
+        intent_msg = {
+            "type": "intent",
+            "clientID": self.client_id,
+            "gameID": self.current_game_id,
+            "intent": {
+                "type": Action.SPAWN.value,
                 "clientID": self.client_id,
-                "gameID": self.current_game_id,
-                "intent": {
-                    "type": Action.SPAWN.value,
-                    "clientID": self.client_id,
-                    "playerID": player_id,
-                    "flag": None,
-                    "name": self.username,
-                    "playerType": "BOT",
-                    "x": action.get("x"),
-                    "y": action.get("y"),
-                },
-            }
-            self.has_spawned = True
-            await self.send_intent(ws, intent_msg, "SPAWN")
+                "playerID": player_id,
+                "flag": None,
+                "name": self.username,
+                "playerType": "BOT",
+                "x": action.get("x"),
+                "y": action.get("y"),
+            },
+        }
+        self.has_spawned = True
+        await self.send_intent(ws, intent_msg, "SPAWN")
 
-        elif action.get("type") == Action.ATTACK.value:
-            state = self.env.current_state or {}
-            players_map = {
-                p.get("smallID"): p.get("playerID") for p in state.get("players", [])
-            }
-            candidates = state.get("candidates", [])
-            target = None
+    async def handle_attack_action(self, ws, action: dict, state: dict) -> None:
+        if self.player_id is None:
+            print("Warning: Cannot send attack intent - player_id not set")
+            return
 
-            if isinstance(candidates, dict):
-                all_candidates = candidates.get("enemyNeighbors", []) + candidates.get(
-                    "emptyNeighbors", []
-                )
-            else:
-                all_candidates = candidates
+        target = self.find_attack_target(action, state)
+        target_player_id = self.resolve_target_player_id(target, state)
+        troops = self.calculate_attack_troops(action, state)
 
-            for e in all_candidates:
-                if e.get("x") == action.get("x") and e.get("y") == action.get("y"):
-                    target = e
-                    break
-            target_player_id = None
-            if target is not None and target.get("ownerSmallID") is not None:
-                target_player_id = players_map.get(target.get("ownerSmallID"))
-
-            troops_ratio = action.get("ratio", 0.5)
-            my_troops = (state.get("me") or {}).get("population")
-            try:
-                troops = int(max(0, min(1, float(troops_ratio))) * int(my_troops or 0))
-            except Exception:
-                troops = 0
-
-            intent_attack = {
-                "type": "intent",
+        intent_attack = {
+            "type": "intent",
+            "clientID": self.client_id,
+            "gameID": self.current_game_id,
+            "intent": {
+                "type": Action.ATTACK.value,
                 "clientID": self.client_id,
-                "gameID": self.current_game_id,
-                "intent": {
-                    "type": Action.ATTACK.value,
-                    "clientID": self.client_id,
-                    "attackerID": self.player_id,
-                    "targetID": target_player_id,
-                    "troops": troops,
-                },
-            }
-            await self.send_intent(ws, intent_attack, "ATTACK")
+                "attackerID": self.player_id,
+                "targetID": target_player_id,
+                "troops": troops,
+            },
+        }
+        await self.send_intent(ws, intent_attack, "ATTACK")
+
+    def find_attack_target(self, action: dict, state: dict) -> dict | None:
+        candidates = state.get("candidates", [])
+
+        if isinstance(candidates, dict):
+            all_candidates = candidates.get("enemyNeighbors", []) + candidates.get(
+                "emptyNeighbors", []
+            )
+        else:
+            all_candidates = candidates
+
+        action_x, action_y = action.get("x"), action.get("y")
+        for candidate in all_candidates:
+            if candidate.get("x") == action_x and candidate.get("y") == action_y:
+                return candidate
+
+        return None
+
+    def resolve_target_player_id(self, target: dict | None, state: dict) -> str | None:
+        if target is None or target.get("ownerSmallID") is None:
+            return None
+
+        players_map = {
+            p.get("smallID"): p.get("playerID") for p in state.get("players", [])
+        }
+        return players_map.get(target.get("ownerSmallID"))
+
+    def calculate_attack_troops(self, action: dict, state: dict) -> int:
+        troops_ratio = action.get("ratio", 0.5)
+        my_troops = state.get("me", {}).get("population", 0)
+
+        try:
+            normalized_ratio = max(0.0, min(1.0, float(troops_ratio)))
+            return int(normalized_ratio * int(my_troops))
+        except (ValueError, TypeError):
+            return 0
 
     async def process_message(self, message: str) -> None:
         try:
@@ -132,6 +180,7 @@ class BotConnection(ConnectionHandler):
         if msg_type == "created":
             self.current_game_id = state.get("gameID")
             self.has_spawned = False
+            self.player_id = None
             print(f"Started new game {self.current_game_id}")
             self.agent.total_reward = 0
             if self.metrics:
@@ -141,6 +190,7 @@ class BotConnection(ConnectionHandler):
             return
 
         self.debug_print_state(state)
+        self.sync_player_state(state)
         self.env.update_state(state)
 
     async def on_agent_action(self, _action: dict) -> None:
@@ -155,7 +205,6 @@ class BotConnection(ConnectionHandler):
                 await asyncio.sleep(AUTOSAVE_INTERVAL)
                 await self.agent.save()
         except asyncio.CancelledError:
-            # Task cancelled, exit autosave loop gracefully
             pass
 
     async def run(self) -> None:
