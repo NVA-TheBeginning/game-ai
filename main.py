@@ -146,12 +146,8 @@ class Environment:
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         candidates = state.get("candidates") or []
 
-        if isinstance(candidates, dict):
-            empty = candidates.get("emptyNeighbors") or []
-            enemy = candidates.get("enemyNeighbors") or []
-        else:
-            empty = [c for c in candidates if c.get("troops", 0) == 0]
-            enemy = [c for c in candidates if c.get("troops", 0) > 0]
+        empty = [c for c in candidates if c.get("troops", 0) == 0]
+        enemy = [c for c in candidates if c.get("troops", 0) > 0]
 
         if state.get("inSpawnPhase"):
             me = state.get("me") or {}
@@ -222,17 +218,11 @@ class Agent:
             population_pct = 0
 
         neighbor_ratios = []
-        if isinstance(candidates, dict):
-            enemy_neighbors = candidates.get("enemyNeighbors") or []
-            for neighbor in enemy_neighbors:
-                enemy_troops = neighbor.get("troops", 0)
-                ratio = calculate_neighbor_ratio(population, enemy_troops)
-                neighbor_ratios.append(ratio)
-        else:
-            for candidate in candidates:
-                enemy_troops = candidate.get("troops", 0)
-                ratio = calculate_neighbor_ratio(population, enemy_troops)
-                neighbor_ratios.append(ratio)
+
+        for candidate in candidates:
+            enemy_troops = candidate.get("troops", 0)
+            ratio = calculate_neighbor_ratio(population, enemy_troops)
+            neighbor_ratios.append(ratio)
 
         return (
             in_spawn,
