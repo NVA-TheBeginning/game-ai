@@ -10,7 +10,6 @@ from lib.constants import DISTANCE_THRESHOLD, QTABLE_FILE
 
 _initialization_lock = threading.Lock()
 
-# State tuple indices
 STATE_INDEX_IN_SPAWN = 0
 STATE_INDEX_POPULATION_PCT = 1
 STATE_INDEX_CONQUEST_PCT = 2
@@ -66,10 +65,7 @@ class QTable:
                     self._acquire_file_lock(f)
                     try:
                         data = pickle.load(f)
-                        if isinstance(data, tuple):
-                            self._local_qtable = data[0]
-                        else:
-                            self._local_qtable = data
+                        self._local_qtable = data
                         print(
                             f"Q-table loaded from {self.filename} "
                             f"({len(self._local_qtable)} states)"
@@ -146,7 +142,6 @@ class QTable:
                         min_distance = dist
                         closest_state = s_key
 
-                # Check distance threshold
                 if closest_state is None or min_distance > DISTANCE_THRESHOLD:
                     return dict.fromkeys(action_keys, 0.0)
 

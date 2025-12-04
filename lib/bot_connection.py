@@ -9,10 +9,12 @@ from websockets import ConnectionClosed
 from lib.connection_handler import ConnectionHandler
 from lib.constants import (
     AUTOSAVE_INTERVAL,
+    CONQUEST_WIN_THRESHOLD,
     DEBUG_MODE,
     EPSILON_DECAY,
     EPSILON_MIN,
     GRAPH_ENABLED,
+    REWARD_PLAYER_ELIMINATED,
     SERVER_WS,
 )
 from lib.metrics import GameMetrics
@@ -35,6 +37,7 @@ class BotConnection(ConnectionHandler):
         self.has_spawned: bool = False
         self.metrics = GameMetrics() if GRAPH_ENABLED else None
         self.game_count = 0
+        self.previous_owned_count: int = 0
 
     def debug_print_state(self, state: dict) -> None:
         if DEBUG_MODE:
@@ -104,7 +107,7 @@ class BotConnection(ConnectionHandler):
                 "playerID": player_id,
                 "flag": None,
                 "name": self.username,
-                "playerType": "BOT",
+                "playerType": "HUMAN",
                 "x": action.get("x"),
                 "y": action.get("y"),
             },
@@ -177,7 +180,7 @@ class BotConnection(ConnectionHandler):
         if msg_type == "created":
             self.current_game_id = state.get("gameID")
             self.has_spawned = False
-            self.player_id = None
+            self.previous_owned_count = 0
             print(f"Started new game {self.current_game_id}")
             self.agent.total_reward = 0
             if self.metrics:
@@ -187,7 +190,20 @@ class BotConnection(ConnectionHandler):
             return
 
         self.debug_print_state(state)
-        self.sync_player_state(state)
+
+        me = state.get("me", {})
+        owned_count = me.get("ownedCount", 0)
+
+        if self.previous_owned_count > 0 and owned_count == 0:
+            conquest_pct = me.get("conquestPercent", 0)
+            population = me.get("population", 0)
+            print(
+                f"\nPlayer eliminated (conquest: {conquest_pct}%, owned: {owned_count}, pop: {population})"
+            )
+            self.agent.reward += REWARD_PLAYER_ELIMINATED
+            raise RuntimeError("Player eliminated - ending game")
+
+        self.previous_owned_count = owned_count
         self.env.update_state(state)
 
     async def on_agent_action(self, _action: dict) -> None:
@@ -205,7 +221,6 @@ class BotConnection(ConnectionHandler):
             pass
 
     async def start_ping_loop(self, ws):
-        print("Start pinging like a boss")
         try:
             while self.running:
                 await asyncio.sleep(10)
@@ -231,6 +246,7 @@ class BotConnection(ConnectionHandler):
                 self.player_id = None
                 self.current_game_id = None
                 self.has_spawned = False
+                self.previous_owned_count = 0
                 self.running = True
 
                 print(f"\n=== Starting Game #{self.game_count} ===")
@@ -262,14 +278,33 @@ class BotConnection(ConnectionHandler):
 
                     if self.metrics:
                         final_tick = (self.env.current_state or {}).get("tick", 0)
-                        self.metrics.end_game(final_tick)
+                        me = (self.env.current_state or {}).get("me", {})
+                        conquest_pct = me.get("conquestPercent", 0) or 0
+                        win = conquest_pct >= CONQUEST_WIN_THRESHOLD
+                        try:
+                            qtable_size = await self.agent.qtable.get_size()
+                        except Exception:
+                            qtable_size = 0
+
+                        self.metrics.end_game(
+                            final_tick,
+                            win=win,
+                            qtable_size=qtable_size,
+                            epsilon=self.agent.epsilon,
+                        )
                         graph_path = self.metrics.generate_graphs()
                         if graph_path:
                             print(f"Graph saved to: {graph_path}")
                         summary = self.metrics.get_summary()
                         if summary:
                             print(
-                                f"Total games: {summary['total_games']}, Avg score: {summary['avg_score']:.2f}, Avg duration: {summary['avg_duration']:.1f} ticks"
+                                "Total games: "
+                                f"{summary['total_games']}, "
+                                f"Avg score: {summary['avg_score']:.2f}, "
+                                f"Avg duration: {summary['avg_duration']:.1f} ticks, "
+                                f"Win rate: {summary['win_rate'] * 100:.1f}%, "
+                                f"Avg Q-table size: {summary['avg_qtable_size']:.0f}, "
+                                f"Last epsilon: {summary['last_epsilon']:.4f}"
                             )
 
                     print(f"Reconnecting in {backoff:.1f}s...")

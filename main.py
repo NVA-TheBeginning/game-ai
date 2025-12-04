@@ -147,8 +147,13 @@ class Environment:
         s = getattr(self, "current_state", {}) or {}
         candidates = state.get("candidates") or []
 
-        if s.get("inSpawnPhase"):
-            if candidates:
+        empty = [c for c in candidates if c.get("troops", 0) == 0]
+        enemy = [c for c in candidates if c.get("troops", 0) > 0]
+
+        if state.get("inSpawnPhase"):
+            me = state.get("me") or {}
+            has_spawned = me.get("ownedCount", 0) > 0
+            if empty and not has_spawned:
                 return [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
             return [{"type": Action.NONE.value}]
 
