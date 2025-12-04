@@ -13,9 +13,8 @@ _initialization_lock = threading.Lock()
 # State tuple indices
 STATE_INDEX_IN_SPAWN = 0
 STATE_INDEX_POPULATION_PCT = 1
-STATE_INDEX_MAX_POPULATION = 2
-STATE_INDEX_CONQUEST_PCT = 3
-STATE_INDEX_NEIGHBOR_RATIOS = 4
+STATE_INDEX_CONQUEST_PCT = 2
+STATE_INDEX_NEIGHBOR_RATIOS = 3
 
 
 class QTable:
@@ -216,7 +215,7 @@ class QTable:
             if i == STATE_INDEX_IN_SPAWN:
                 if v1 != v2:
                     distance += 10
-            elif i in {STATE_INDEX_POPULATION_PCT, STATE_INDEX_MAX_POPULATION}:
+            elif i == STATE_INDEX_POPULATION_PCT:
                 if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
                     distance += abs(v1 - v2) * 1.0
             elif i == STATE_INDEX_CONQUEST_PCT:

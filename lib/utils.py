@@ -41,5 +41,5 @@ def get_action_key(action: dict[str, Any]) -> str:
     if action_type == Action.SPAWN.value:
         return f"spawn:{action.get('x')},{action.get('y')}"
     if action_type == Action.ATTACK.value:
-        return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
+        return f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
     return Action.NONE.value

@@ -138,19 +138,11 @@ class BotConnection(ConnectionHandler):
     def find_attack_target(self, action: dict, state: dict) -> dict | None:
         candidates = state.get("candidates", [])
 
-        if isinstance(candidates, dict):
-            all_candidates = candidates.get("enemyNeighbors", []) + candidates.get(
-                "emptyNeighbors", []
-            )
-        else:
-            all_candidates = candidates
+        neighbor_index = action.get("neighbor_index")
+        if neighbor_index is None or neighbor_index < 0 or neighbor_index >= len(candidates):
+            return None
 
-        action_x, action_y = action.get("x"), action.get("y")
-        for candidate in all_candidates:
-            if candidate.get("x") == action_x and candidate.get("y") == action_y:
-                return candidate
-
-        return None
+        return candidates[neighbor_index]
 
     def resolve_target_player_id(self, target: dict | None, state: dict) -> str | None:
         if target is None or target.get("ownerSmallID") is None:
