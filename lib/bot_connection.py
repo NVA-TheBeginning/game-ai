@@ -139,12 +139,7 @@ class BotConnection(ConnectionHandler):
     def find_attack_target(self, action: dict, state: dict) -> dict | None:
         candidates = state.get("candidates", [])
 
-        if isinstance(candidates, dict):
-            all_candidates = candidates.get("enemyNeighbors", []) + candidates.get(
-                "emptyNeighbors", []
-            )
-        else:
-            all_candidates = candidates
+        all_candidates = candidates
 
         action_x, action_y = action.get("x"), action.get("y")
         for candidate in all_candidates:
