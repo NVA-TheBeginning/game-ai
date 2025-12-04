@@ -158,13 +158,15 @@ class Environment:
         actions = [{"type": Action.NONE.value}]
         for ratio in ATTACK_RATIOS:
             for idx, candidate in enumerate(candidates):
-                actions.append({
-                    "type": Action.ATTACK.value,
-                    "neighbor_index": idx,
-                    "x": candidate.get("x"),
-                    "y": candidate.get("y"),
-                    "ratio": ratio,
-                })
+                actions.append(
+                    {
+                        "type": Action.ATTACK.value,
+                        "neighbor_index": idx,
+                        "x": candidate.get("x"),
+                        "y": candidate.get("y"),
+                        "ratio": ratio,
+                    }
+                )
 
         return actions
 
@@ -252,7 +254,7 @@ class Agent:
         max_pop = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
 
-        in_spawn, pop_pct, conquest_state, neighbor_ratios = (new_state_key)
+        in_spawn, pop_pct, conquest_state, neighbor_ratios = new_state_key
         neighbors_str = ",".join(
             str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
         )
@@ -310,7 +312,9 @@ class Agent:
         if action_type == Action.SPAWN.value:
             return f"spawn:{action.get('x')},{action.get('y')}"
         if action_type == Action.ATTACK.value:
-            return f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
+            return (
+                f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
+            )
         return Action.NONE.value
 
     async def save(self) -> None:

@@ -139,7 +139,11 @@ class BotConnection(ConnectionHandler):
         candidates = state.get("candidates", [])
 
         neighbor_index = action.get("neighbor_index")
-        if neighbor_index is None or neighbor_index < 0 or neighbor_index >= len(candidates):
+        if (
+            neighbor_index is None
+            or neighbor_index < 0
+            or neighbor_index >= len(candidates)
+        ):
             return None
 
         return candidates[neighbor_index]
