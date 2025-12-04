@@ -37,6 +37,7 @@ class GameMetrics:
     def end_game(
         self,
         final_tick: int,
+        *,
         win: bool = False,
         qtable_size: int | None = None,
         epsilon: float | None = None,
