@@ -13,6 +13,7 @@ from lib.constants import (
     EPSILON_DECAY,
     EPSILON_MIN,
     GRAPH_ENABLED,
+    REWARD_PLAYER_ELIMINATED,
     SERVER_WS,
 )
 from lib.metrics import GameMetrics
@@ -194,6 +195,7 @@ class BotConnection(ConnectionHandler):
             print(
                 f"\nPlayer eliminated (conquest: {conquest_pct}%, owned: {owned_count}, pop: {population})"
             )
+            self.agent.reward += REWARD_PLAYER_ELIMINATED
             raise RuntimeError("Player eliminated - ending game")
 
         self.previous_owned_count = owned_count
@@ -214,7 +216,6 @@ class BotConnection(ConnectionHandler):
             pass
 
     async def start_ping_loop(self, ws):
-        print("Start pinging like a boss")
         try:
             while self.running:
                 await asyncio.sleep(10)
