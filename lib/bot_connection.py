@@ -36,6 +36,7 @@ class BotConnection(ConnectionHandler):
         self.has_spawned: bool = False
         self.metrics = GameMetrics() if GRAPH_ENABLED else None
         self.game_count = 0
+        self.previous_owned_count: int = 0
 
     def debug_print_state(self, state: dict) -> None:
         if DEBUG_MODE:
@@ -182,7 +183,7 @@ class BotConnection(ConnectionHandler):
         if msg_type == "created":
             self.current_game_id = state.get("gameID")
             self.has_spawned = False
-            self.player_id = None
+            self.previous_owned_count = 0
             print(f"Started new game {self.current_game_id}")
             self.agent.total_reward = 0
             if self.metrics:
@@ -192,7 +193,19 @@ class BotConnection(ConnectionHandler):
             return
 
         self.debug_print_state(state)
-        self.sync_player_state(state)
+
+        me = state.get("me", {})
+        owned_count = me.get("ownedCount", 0)
+
+        if self.previous_owned_count > 0 and owned_count == 0:
+            conquest_pct = me.get("conquestPercent", 0)
+            population = me.get("population", 0)
+            print(
+                f"\nPlayer eliminated (conquest: {conquest_pct}%, owned: {owned_count}, pop: {population})"
+            )
+            raise RuntimeError("Player eliminated - ending game")
+
+        self.previous_owned_count = owned_count
         self.env.update_state(state)
 
     async def on_agent_action(self, _action: dict) -> None:
@@ -236,6 +249,7 @@ class BotConnection(ConnectionHandler):
                 self.player_id = None
                 self.current_game_id = None
                 self.has_spawned = False
+                self.previous_owned_count = 0
                 self.running = True
 
                 print(f"\n=== Starting Game #{self.game_count} ===")
