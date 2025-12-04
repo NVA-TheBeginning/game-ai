@@ -107,7 +107,7 @@ class BotConnection(ConnectionHandler):
                 "playerID": player_id,
                 "flag": None,
                 "name": self.username,
-                "playerType": "BOT",
+                "playerType": "HUMAN",
                 "x": action.get("x"),
                 "y": action.get("y"),
             },
@@ -140,12 +140,16 @@ class BotConnection(ConnectionHandler):
 
     def find_attack_target(self, action: dict, state: dict) -> dict | None:
         candidates = state.get("candidates", [])
-        action_x, action_y = action.get("x"), action.get("y")
-        for candidate in candidates:
-            if candidate.get("x") == action_x and candidate.get("y") == action_y:
-                return candidate
 
-        return None
+        neighbor_index = action.get("neighbor_index")
+        if (
+            neighbor_index is None
+            or neighbor_index < 0
+            or neighbor_index >= len(candidates)
+        ):
+            return None
+
+        return candidates[neighbor_index]
 
     def resolve_target_player_id(self, target: dict | None, state: dict) -> str | None:
         if target is None or target.get("ownerSmallID") is None:

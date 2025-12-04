@@ -146,32 +146,28 @@ class Environment:
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         candidates = state.get("candidates") or []
 
-        empty = [c for c in candidates if c.get("troops", 0) == 0]
-        enemy = [c for c in candidates if c.get("troops", 0) > 0]
-
         if state.get("inSpawnPhase"):
             me = state.get("me") or {}
             has_spawned = me.get("ownedCount", 0) > 0
-            if empty and not has_spawned:
+            if not has_spawned:
                 return [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
             return [{"type": Action.NONE.value}]
 
-        targets = (enemy or []) + (empty or [])
-        if not targets:
+        if not candidates:
             return [{"type": Action.NONE.value}]
 
         actions = [{"type": Action.NONE.value}]
-        prioritized = (enemy or []) + (empty or [])
         for ratio in ATTACK_RATIOS:
-            actions.extend(
-                {
-                    "type": Action.ATTACK.value,
-                    "x": cell["x"],
-                    "y": cell["y"],
-                    "ratio": ratio,
-                }
-                for cell in prioritized
-            )
+            for idx, candidate in enumerate(candidates):
+                actions.append(
+                    {
+                        "type": Action.ATTACK.value,
+                        "neighbor_index": idx,
+                        "x": candidate.get("x"),
+                        "y": candidate.get("y"),
+                        "ratio": ratio,
+                    }
+                )
 
         return actions
 
@@ -218,7 +214,6 @@ class Agent:
             population_pct = 0
 
         neighbor_ratios = []
-
         for candidate in candidates:
             enemy_troops = candidate.get("troops", 0)
             ratio = calculate_neighbor_ratio(population, enemy_troops)
@@ -227,7 +222,6 @@ class Agent:
         return (
             in_spawn,
             population_pct,
-            max_population,
             conquest_pct,
             tuple(neighbor_ratios),
         )
@@ -261,15 +255,13 @@ class Agent:
         max_pop = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
 
-        in_spawn, pop_pct, max_pop_state, conquest_state, neighbor_ratios = (
-            new_state_key
-        )
+        in_spawn, pop_pct, conquest_state, neighbor_ratios = new_state_key
         neighbors_str = ",".join(
             str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
         )
         if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
             neighbors_str += "..."
-        state_str = f"S:({int(in_spawn)},{pop_pct},{max_pop_state},{conquest_state},({neighbors_str}))"
+        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},({neighbors_str}))"
 
         status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
         print(status + " " * 20, end="", flush=True)
@@ -321,7 +313,9 @@ class Agent:
         if action_type == Action.SPAWN.value:
             return f"spawn:{action.get('x')},{action.get('y')}"
         if action_type == Action.ATTACK.value:
-            return f"attack:{action.get('x')},{action.get('y')}|ratio:{action.get('ratio')}"
+            return (
+                f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
+            )
         return Action.NONE.value
 
     async def save(self) -> None:
