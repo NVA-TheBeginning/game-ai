@@ -227,6 +227,7 @@ class BotConnection(ConnectionHandler):
                 f"\nVictory! Conquest: {conquest_pct}% (threshold: {CONQUEST_WIN_THRESHOLD}%)"
             )
             self.agent.reward += REWARD_VICTORY
+            self.metrics.game_wins.append(1)
             raise RuntimeError("Victory achieved - ending game")
 
     def handle_game_over(
