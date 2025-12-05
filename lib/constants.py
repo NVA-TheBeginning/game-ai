@@ -91,9 +91,11 @@ GRAPH_ENABLED = resolve_setting(
     caster=as_bool,
 )
 
+EPSILON = float(os.getenv("EPSILON", "0.0"))
+GAMMA = float(os.getenv("GAMMA", "0.999"))
+ALPHA = float(os.getenv("ALPHA", "0.5"))
+
 ATTACK_RATIOS = [0.30, 0.35, 0.40]
-EPSILON_MIN = 0.02
-EPSILON_DECAY = 0.9995
 
 CONQUEST_WIN_THRESHOLD = 80
 
@@ -109,9 +111,6 @@ REWARD_VICTORY = 1000.0
 REWARD_PLAYER_ELIMINATED = -1000.0
 REWARD_SPAWN_FAILED = -500.0
 
-DISTANCE_THRESHOLD = 10  # Maximum distance for state matching (returns 0.0 if exceeded)
-
-# Environment thresholds
 LOW_POPULATION_THRESHOLD = 0.20
 HIGH_POPULATION_THRESHOLD = 0.80
 SPAWN_PHASE_DURATION = 100

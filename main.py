@@ -1,5 +1,4 @@
 import asyncio
-import math
 import random
 import sys
 from typing import Any
@@ -8,8 +7,11 @@ from websockets.asyncio.server import serve
 
 from lib.bot_connection import BotConnection
 from lib.constants import (
+    ALPHA,
     ATTACK_RATIOS,
     CONQUEST_WIN_THRESHOLD,
+    EPSILON,
+    GAMMA,
     HIGH_POPULATION_THRESHOLD,
     INTERFACE_PORT,
     LOW_POPULATION_THRESHOLD,
@@ -32,15 +34,14 @@ from lib.utils import Action
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
     if enemy_troops == 0:
-        return 100
+        return 1
     if my_troops == 0:
-        return -100
-
-    ratio = my_troops / enemy_troops
-    log_ratio = math.log10(ratio)
-    clamped = max(-1.0, min(1.0, log_ratio))  # Clamp to [-1, 1]
-
-    return int(clamped * 100)
+        return -1
+    if my_troops > enemy_troops:
+        return 1
+    if my_troops < enemy_troops:
+        return -1
+    return 0
 
 
 class Environment:
@@ -178,9 +179,9 @@ class Agent:
         self.reward = 0
         self.qtable = QTable.get_instance()
         self.score = None
-        self.alpha = 0.5
-        self.gamma = 0.999
-        self.epsilon = 0.00
+        self.alpha = ALPHA
+        self.gamma = GAMMA
+        self.epsilon = EPSILON
         self.history = []
         self.total_reward = 0
         self._state_lock = asyncio.Lock()
@@ -206,10 +207,10 @@ class Agent:
         in_spawn = bool(s.get("inSpawnPhase", False))
         population = me.get("population", 0)
         max_population = me.get("maxPopulation", 1)
-        conquest_pct = me.get("conquestPercent", 0)
+        conquest_pct = round(me.get("conquestPercent", 0) / 5) * 5
 
         if max_population > 0:
-            population_pct = int((population / max_population) * 100)
+            population_pct = round((population / max_population) * 100 / 5) * 5
         else:
             population_pct = 0
 
@@ -275,16 +276,12 @@ class Agent:
         if not possible_actions:
             return {"type": Action.NONE.value}
 
-        if (
-            random.random() < self.epsilon
-            or (closest_state := await self.qtable.find_closest_state(self.state))
-            is None
-        ):
+        if random.random() < self.epsilon:
             self.random_actions += 1
             action = random.choice(possible_actions)
         else:
             action_keys = [self._get_action_key(a) for a in possible_actions]
-            q_values = await self.qtable.get_state_actions(closest_state, action_keys)
+            q_values = await self.qtable.get_state_actions(self.state, action_keys)
 
             if not q_values:
                 self.random_actions += 1

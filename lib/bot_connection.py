@@ -11,8 +11,6 @@ from lib.constants import (
     AUTOSAVE_INTERVAL,
     CONQUEST_WIN_THRESHOLD,
     DEBUG_MODE,
-    EPSILON_DECAY,
-    EPSILON_MIN,
     GRAPH_ENABLED,
     REWARD_PLAYER_ELIMINATED,
     REWARD_SPAWN_FAILED,
@@ -244,8 +242,6 @@ class BotConnection(ConnectionHandler):
     async def on_agent_action(self, _action: dict) -> None:
         if self.metrics:
             self.metrics.add_reward(self.agent.reward)
-
-        self.agent.epsilon = max(EPSILON_MIN, self.agent.epsilon * EPSILON_DECAY)
 
     async def autosave_loop(self):
         try:
