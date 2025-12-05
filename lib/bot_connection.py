@@ -15,7 +15,10 @@ from lib.constants import (
     EPSILON_MIN,
     GRAPH_ENABLED,
     REWARD_PLAYER_ELIMINATED,
+    REWARD_SPAWN_FAILED,
+    REWARD_VICTORY,
     SERVER_WS,
+    SPAWN_PHASE_DURATION,
 )
 from lib.metrics import GameMetrics
 from lib.utils import Action
@@ -191,20 +194,52 @@ class BotConnection(ConnectionHandler):
 
         self.debug_print_state(state)
 
+        self.handle_fail_spawn(state)
+        self.handle_victory(state)
+
+        me = state.get("me", {})
+        owned_count = me.get("ownedCount", 0)
+        population = me.get("population", 0)
+        conquest_pct = me.get("conquestPercent", 0)
+
+        self.handle_game_over(owned_count, population, conquest_pct)
+        self.previous_owned_count = owned_count
+        self.env.update_state(state)
+
+    def handle_fail_spawn(self, state: dict) -> None:
+        tick = state.get("tick", 0)
+        in_spawn_phase = state.get("inSpawnPhase", True)
         me = state.get("me", {})
         owned_count = me.get("ownedCount", 0)
 
+        if (
+            not in_spawn_phase
+            and owned_count == 0
+            and self.previous_owned_count == 0
+            and tick > SPAWN_PHASE_DURATION + 50
+        ):
+            print(f"\nSpawn failed - never acquired any tiles (tick: {tick})")
+            self.agent.reward += REWARD_SPAWN_FAILED
+            raise RuntimeError("Spawn failed - ending game")
+
+    def handle_victory(self, state: dict) -> None:
+        conquest_pct = state.get("me", {}).get("conquestPercent", 0)
+        if conquest_pct >= CONQUEST_WIN_THRESHOLD:
+            print(
+                f"\nVictory! Conquest: {conquest_pct}% (threshold: {CONQUEST_WIN_THRESHOLD}%)"
+            )
+            self.agent.reward += REWARD_VICTORY
+            raise RuntimeError("Victory achieved - ending game")
+
+    def handle_game_over(
+        self, owned_count: int, population: int, conquest_pct: int
+    ) -> None:
         if self.previous_owned_count > 0 and owned_count == 0:
-            conquest_pct = me.get("conquestPercent", 0)
-            population = me.get("population", 0)
             print(
                 f"\nPlayer eliminated (conquest: {conquest_pct}%, owned: {owned_count}, pop: {population})"
             )
             self.agent.reward += REWARD_PLAYER_ELIMINATED
             raise RuntimeError("Player eliminated - ending game")
-
-        self.previous_owned_count = owned_count
-        self.env.update_state(state)
 
     async def on_agent_action(self, _action: dict) -> None:
         if self.metrics:
