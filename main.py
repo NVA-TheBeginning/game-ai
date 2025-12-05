@@ -111,7 +111,10 @@ class Environment:
             old_me = (old_state or {}).get("me", {})
             population = old_me.get("population", 0)
             max_population = old_me.get("maxPopulation", 1)
-            if max_population > 0 and population / max_population < LOW_POPULATION_THRESHOLD:
+            if (
+                max_population > 0
+                and population / max_population < LOW_POPULATION_THRESHOLD
+            ):
                 return REWARD_ATTACK_AT_LOW_POPULATION
         return 0.0
 
