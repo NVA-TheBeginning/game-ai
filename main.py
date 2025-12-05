@@ -1,5 +1,4 @@
 import asyncio
-import math
 import random
 import sys
 from typing import Any

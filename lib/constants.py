@@ -91,9 +91,9 @@ GRAPH_ENABLED = resolve_setting(
     caster=as_bool,
 )
 
-EPSILON = float(os.getenv("EPSILON", 0.0))
-GAMMA = float(os.getenv("GAMMA", 0.999))
-ALPHA = float(os.getenv("ALPHA", 0.5))
+EPSILON = float(os.getenv("EPSILON", "0.0"))
+GAMMA = float(os.getenv("GAMMA", "0.999"))
+ALPHA = float(os.getenv("ALPHA", "0.5"))
 
 ATTACK_RATIOS = [0.30, 0.35, 0.40]
 
