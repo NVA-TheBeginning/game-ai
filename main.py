@@ -17,6 +17,7 @@ from lib.constants import (
     LOW_POPULATION_THRESHOLD,
     MAX_NEIGHBORS_DISPLAY,
     MODE,
+    REWARD_ATTACK_AT_LOW_POPULATION,
     REWARD_CONQUEST_WIN,
     REWARD_MISSED_SPAWN,
     REWARD_SMALL_STEP,
@@ -103,6 +104,20 @@ class Environment:
             return REWARD_CONQUEST_WIN
         return 0.0
 
+    def rewards_attack_at_low_population(
+        self, old_state: dict[str, Any], action: dict[str, Any] | None
+    ) -> float:
+        if action and action.get("type") == Action.ATTACK.value:
+            old_me = (old_state or {}).get("me", {})
+            population = old_me.get("population", 0)
+            max_population = old_me.get("maxPopulation", 1)
+            if (
+                max_population > 0
+                and population / max_population < LOW_POPULATION_THRESHOLD
+            ):
+                return REWARD_ATTACK_AT_LOW_POPULATION
+        return 0.0
+
     def rewards_spawn(
         self,
         old_state: dict[str, Any],
@@ -142,6 +157,7 @@ class Environment:
             + self.rewards_territory(old_state, new_state)
             + self.rewards_population(new_state)
             + self.rewards_conquest(new_state)
+            + self.rewards_attack_at_low_population(old_state, action)
         )
 
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
