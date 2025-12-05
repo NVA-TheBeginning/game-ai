@@ -210,7 +210,7 @@ class Agent:
         conquest_pct = round(me.get("conquestPercent", 0) / 5) * 5
 
         if max_population > 0:
-            population_pct = int((population / max_population) * 100)
+            population_pct = round((population / max_population) * 100 / 5) * 5
         else:
             population_pct = 0
 
