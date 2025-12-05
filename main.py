@@ -178,9 +178,9 @@ class Agent:
         self.reward = 0
         self.qtable = QTable.get_instance()
         self.score = None
-        self.alpha = 0.1
-        self.gamma = 0.99
-        self.epsilon = 0.05
+        self.alpha = 0.5
+        self.gamma = 0.999
+        self.epsilon = 0.00
         self.history = []
         self.total_reward = 0
         self._state_lock = asyncio.Lock()
