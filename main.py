@@ -19,6 +19,7 @@ from lib.constants import (
     MODE,
     REWARD_ATTACK_AT_LOW_POPULATION,
     REWARD_CONQUEST_WIN,
+    REWARD_VICTORY, 
     REWARD_MISSED_SPAWN,
     REWARD_SMALL_STEP,
     REWARD_SPAWN_SUCCESS,
@@ -101,7 +102,7 @@ class Environment:
         new_me = (new_state or {}).get("me", {})
         conquest_pct = new_me.get("conquestPercent", 0)
         if conquest_pct >= CONQUEST_WIN_THRESHOLD:
-            return REWARD_CONQUEST_WIN
+            return REWARD_VICTORY
         return 0.0
 
     def rewards_attack_at_low_population(
