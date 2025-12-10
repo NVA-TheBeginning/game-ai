@@ -12,9 +12,6 @@ from lib.constants import (
     CONQUEST_WIN_THRESHOLD,
     DEBUG_MODE,
     GRAPH_ENABLED,
-    REWARD_PLAYER_ELIMINATED,
-    REWARD_SPAWN_FAILED,
-    REWARD_VICTORY,
     SERVER_WS,
     SPAWN_PHASE_DURATION,
 )
@@ -122,7 +119,7 @@ class BotConnection(ConnectionHandler):
             return
 
         target = self.find_attack_target(action, state)
-        target_player_id = self.resolve_target_player_id(target, state)
+        target_player_id = self.resolve_target_player_id(target)
         troops = self.calculate_attack_troops(action, state)
 
         intent_attack = {
@@ -134,6 +131,8 @@ class BotConnection(ConnectionHandler):
                 "clientID": self.client_id,
                 "attackerID": self.player_id,
                 "targetID": target_player_id,
+                "x": target.get("x") if target else None,
+                "y": target.get("y") if target else None,
                 "troops": troops,
             },
         }
@@ -152,14 +151,11 @@ class BotConnection(ConnectionHandler):
 
         return candidates[neighbor_index]
 
-    def resolve_target_player_id(self, target: dict | None, state: dict) -> str | None:
-        if target is None or target.get("ownerSmallID") is None:
+    def resolve_target_player_id(self, target: dict | None) -> str | None:
+        if target is None:
             return None
 
-        players_map = {
-            p.get("smallID"): p.get("playerID") for p in state.get("players", [])
-        }
-        return players_map.get(target.get("ownerSmallID"))
+        return target.get("ownerPlayerID")
 
     def calculate_attack_troops(self, action: dict, state: dict) -> int:
         troops_ratio = action.get("ratio", 0.5)
@@ -192,17 +188,17 @@ class BotConnection(ConnectionHandler):
 
         self.debug_print_state(state)
 
-        self.handle_fail_spawn(state)
-        self.handle_victory(state)
-
         me = state.get("me", {})
         owned_count = me.get("ownedCount", 0)
         population = me.get("population", 0)
         conquest_pct = me.get("conquestPercent", 0)
 
-        self.handle_game_over(owned_count, population, conquest_pct)
-        self.previous_owned_count = owned_count
         self.env.update_state(state)
+        self.previous_owned_count = owned_count
+
+        self.handle_fail_spawn(state)
+        self.handle_victory(state)
+        self.handle_game_over(owned_count, population, conquest_pct)
 
     def handle_fail_spawn(self, state: dict) -> None:
         tick = state.get("tick", 0)
@@ -217,7 +213,6 @@ class BotConnection(ConnectionHandler):
             and tick > SPAWN_PHASE_DURATION + 50
         ):
             print(f"\nSpawn failed - never acquired any tiles (tick: {tick})")
-            self.agent.reward += REWARD_SPAWN_FAILED
             raise RuntimeError("Spawn failed - ending game")
 
     def handle_victory(self, state: dict) -> None:
@@ -226,8 +221,8 @@ class BotConnection(ConnectionHandler):
             print(
                 f"\nVictory! Conquest: {conquest_pct}% (threshold: {CONQUEST_WIN_THRESHOLD}%)"
             )
-            self.agent.reward += REWARD_VICTORY
-            self.metrics.game_wins.append(1)
+            if self.metrics:
+                self.metrics.game_wins.append(1)
             raise RuntimeError("Victory achieved - ending game")
 
     def handle_game_over(
@@ -237,7 +232,6 @@ class BotConnection(ConnectionHandler):
             print(
                 f"\nPlayer eliminated (conquest: {conquest_pct}%, owned: {owned_count}, pop: {population})"
             )
-            self.agent.reward += REWARD_PLAYER_ELIMINATED
             raise RuntimeError("Player eliminated - ending game")
 
     async def on_agent_action(self, _action: dict) -> None:
