@@ -17,16 +17,22 @@ from lib.constants import (
     LOW_POPULATION_THRESHOLD,
     MAX_NEIGHBORS_DISPLAY,
     MODE,
+    RATIO_2_TIMES_HIGHER,
+    RATIO_2_TIMES_LOWER,
+    RATIO_3_TIMES_HIGHER,
+    RATIO_3_TIMES_LOWER,
+    RATIO_4_TIMES_HIGHER,
+    RATIO_4_TIMES_LOWER,
+    RATIO_EQUAL,
     REWARD_ATTACK_AT_LOW_POPULATION,
-    REWARD_CONQUEST_WIN,
-    REWARD_VICTORY, 
-    REWARD_MISSED_SPAWN,
+    REWARD_CONQUEST_GAIN,
+    REWARD_CONQUEST_LOSS,
     REWARD_SMALL_STEP,
+    REWARD_SPAWN_FAILED,
     REWARD_SPAWN_SUCCESS,
-    REWARD_TILE_LOST,
-    REWARD_TILE_WON,
     REWARD_VERY_HIGH_POPULATION,
     REWARD_VERY_LOW_POPULATION,
+    REWARD_VICTORY,
     SPAWN_PHASE_DURATION,
 )
 from lib.qtable import QTable
@@ -36,14 +42,25 @@ from lib.utils import Action
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
     if enemy_troops == 0:
-        return 1
+        return 3
     if my_troops == 0:
-        return -1
-    if my_troops > enemy_troops:
-        return 1
-    if my_troops < enemy_troops:
-        return -1
-    return 0
+        return -3
+
+    ratio = my_troops / enemy_troops
+    thresholds = [
+        (RATIO_4_TIMES_HIGHER, 3),
+        (RATIO_3_TIMES_HIGHER, 2),
+        (RATIO_2_TIMES_HIGHER, 1),
+        (RATIO_EQUAL, 0),
+        (RATIO_2_TIMES_LOWER, -1),
+        (RATIO_3_TIMES_LOWER, -2),
+        (RATIO_4_TIMES_LOWER, -3),
+    ]
+
+    for threshold, value in thresholds:
+        if ratio >= threshold:
+            return value
+    return -4
 
 
 class Environment:
@@ -75,14 +92,15 @@ class Environment:
     ) -> float:
         old_me = (old_state or {}).get("me", {})
         new_me = (new_state or {}).get("me", {})
-        old_owned = old_me.get("ownedCount", 0)
-        new_owned = new_me.get("ownedCount", 0)
-        tiles_diff = new_owned - old_owned
+        old_conquest = old_me.get("conquestPercent", 0)
+        new_conquest = new_me.get("conquestPercent", 0)
 
-        if tiles_diff > 0:
-            return tiles_diff * REWARD_TILE_WON
-        if tiles_diff < 0:
-            return abs(tiles_diff) * REWARD_TILE_LOST
+        conquest_diff = new_conquest - old_conquest
+
+        if conquest_diff > 0:
+            return conquest_diff * REWARD_CONQUEST_GAIN
+        if conquest_diff < 0:
+            return abs(conquest_diff) * REWARD_CONQUEST_LOSS
         return 0.0
 
     def rewards_population(self, new_state: dict[str, Any]) -> float:
@@ -138,7 +156,7 @@ class Environment:
         has_population = new_me.get("population", 0) > 0
 
         if prev_in_spawn and len(prev_empty) > 0 and not has_population:
-            reward += REWARD_MISSED_SPAWN
+            reward += REWARD_SPAWN_FAILED
 
         return reward
 
