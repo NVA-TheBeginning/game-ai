@@ -28,6 +28,7 @@ class QTable:
             with _initialization_lock:
                 if cls._instance is None:
                     cls._instance = cls(filename)
+        assert cls._instance is not None
         return cls._instance
 
     @classmethod
@@ -36,6 +37,7 @@ class QTable:
             with _initialization_lock:
                 if cls._lock is None:
                     cls._lock = asyncio.Lock()
+        assert cls._lock is not None
         return cls._lock
 
     def _acquire_file_lock(self, file_handle) -> None:
