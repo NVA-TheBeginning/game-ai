@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["ruff>=0.14.9", "ty>=0.0.1a35"]
+dev = ["ruff>=0.14.9", "ty>=0.0.2"]
 
 [tool.ruff.lint]
 extend-select = [
