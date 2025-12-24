@@ -88,6 +88,9 @@ class BotConnection(ConnectionHandler):
         elif action_type == Action.ATTACK.value:
             await self.handle_attack_action(ws, action, state)
 
+        elif action_type == Action.BUILD.value:
+            await self.handle_build_action(ws, action)
+
     async def handle_spawn_action(self, ws, action: dict) -> None:
         if self.has_spawned:
             return
@@ -137,6 +140,11 @@ class BotConnection(ConnectionHandler):
             },
         }
         await self.send_intent(ws, intent_attack, "ATTACK")
+
+    async def handle_build_action(self, ws, action: dict) -> None:
+        unit = action.get("unit")
+        build_msg = {"type": Action.BUILD.value, "unit": unit}
+        await self.send_intent(ws, build_msg, f"BUILD {unit}")
 
     def find_attack_target(self, action: dict, state: dict) -> dict | None:
         candidates = state.get("candidates", [])

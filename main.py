@@ -37,7 +37,7 @@ from lib.constants import (
 )
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
-from lib.utils import Action
+from lib.utils import Action, calculate_building_cost
 
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
@@ -193,6 +193,16 @@ class Environment:
             return [{"type": Action.NONE.value}]
 
         actions = [{"type": Action.NONE.value}]
+
+        me = state.get("me") or {}
+        gold = me.get("gold", 0)
+        buildings = me.get("buildings") or {}
+        cities_count = buildings.get("cities", 0)
+
+        city_cost = calculate_building_cost("City", cities_count)
+        if gold >= city_cost:
+            actions.append({"type": Action.BUILD.value, "unit": "City"})
+
         for ratio in ATTACK_RATIOS:
             for idx, candidate in enumerate(candidates):
                 actions.append(
