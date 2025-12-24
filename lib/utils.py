@@ -61,11 +61,10 @@ def get_action_key(action: dict[str, Any]) -> str:
 def calculate_building_cost(building_type: str, current_count: int) -> int:
     if building_type == "City":
         return min(CITY_MAX_COST, 2**current_count * CITY_BASE_COST)
-    elif building_type == "Port":
+    if building_type == "Port":
         return min(PORT_MAX_COST, 2**current_count * PORT_BASE_COST)
-    elif building_type == "Defense Post":
+    if building_type == "Defense Post":
         return min(DEFENSE_POST_MAX_COST, (current_count + 1) * DEFENSE_POST_BASE_COST)
-    elif building_type == "Missile Silo":
+    if building_type == "Missile Silo":
         return MISSILE_SILO_COST
-    else:
-        return 0
+    return 0
