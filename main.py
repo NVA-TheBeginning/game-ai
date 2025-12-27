@@ -300,6 +300,7 @@ class Agent:
         pop = me.get("population", 0)
         max_pop = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
+        gold = me.get("gold", 0)
 
         in_spawn, pop_pct, conquest_state, neighbor_ratios = new_state_key
         neighbors_str = ",".join(
@@ -309,7 +310,7 @@ class Agent:
             neighbors_str += "..."
         state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},({neighbors_str}))"
 
-        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
+        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Gold: {gold:6d} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
         print(status + " " * 20, end="", flush=True)
 
         self.state = new_state_key
@@ -358,6 +359,8 @@ class Agent:
             return (
                 f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
             )
+        if action_type == Action.BUILD.value:
+            return f"build:{action.get('unit')}"
         return Action.NONE.value
 
     async def save(self) -> None:

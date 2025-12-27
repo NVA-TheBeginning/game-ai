@@ -142,9 +142,24 @@ class BotConnection(ConnectionHandler):
         await self.send_intent(ws, intent_attack, "ATTACK")
 
     async def handle_build_action(self, ws, action: dict) -> None:
+        if self.player_id is None:
+            print("Warning: Cannot send build intent - player_id not set")
+            return
+
         unit = action.get("unit")
-        build_msg = {"type": Action.BUILD.value, "unit": unit}
-        await self.send_intent(ws, build_msg, f"BUILD {unit}")
+        print(f"DEBUG: Sending build intent for {unit}")
+        intent_build = {
+            "type": "intent",
+            "clientID": self.client_id,
+            "gameID": self.current_game_id,
+            "intent": {
+                "type": Action.BUILD.value,
+                "clientID": self.client_id,
+                "playerID": self.player_id,
+                "unit": unit,
+            },
+        }
+        await self.send_intent(ws, intent_build, f"BUILD {unit}")
 
     def find_attack_target(self, action: dict, state: dict) -> dict | None:
         candidates = state.get("candidates", [])
