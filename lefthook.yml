@@ -1,0 +1,30 @@
+# https://lefthook.dev/installation/index.html
+# lefthook install
+pre-commit:
+  parallel: true
+  jobs:
+    - name: ruff
+      glob: "*.{py,pyi}"
+      stage_fixed: true
+      group:
+        piped: true
+        jobs:
+          - name: check
+            run: uv run ruff check --fix {staged_files}
+          - name: format
+            run: uv run ruff format {staged_files}
+
+    - name: ty
+      glob: "*.{py,pyi}"
+      run: uv run ty check {staged_files}
+
+post-checkout:
+  jobs:
+    - run: uv sync
+      glob: uv.lock
+
+post-merge:
+  files: "git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD"
+  jobs:
+    - run: uv sync
+      glob: uv.lock
