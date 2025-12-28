@@ -301,6 +301,7 @@ class Agent:
         max_pop = me.get("maxPopulation", 1)
         conquest_pct = me.get("conquestPercent", 0)
         gold = me.get("gold", 0)
+        cities = me.get("buildings", {}).get("cities", 0)
 
         in_spawn, pop_pct, conquest_state, neighbor_ratios = new_state_key
         neighbors_str = ",".join(
@@ -310,7 +311,7 @@ class Agent:
             neighbors_str += "..."
         state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},({neighbors_str}))"
 
-        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Gold: {gold:6d} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
+        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Gold: {gold:6d} | Cities: {cities} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
         print(status + " " * 20, end="", flush=True)
 
         self.state = new_state_key
@@ -321,6 +322,15 @@ class Agent:
 
         if not possible_actions:
             return {"type": Action.NONE.value}
+
+        state = self.env.current_state or {}
+        if not state.get("inSpawnPhase"):
+            me = state.get("me", {})
+            gold = me.get("gold", 0)
+            cities = me.get("buildings", {}).get("cities", 0)
+            cost = calculate_building_cost("City", cities)
+            if gold >= cost:
+                return {"type": Action.BUILD.value, "unit": "City"}
 
         if random.random() < self.epsilon:
             self.random_actions += 1
