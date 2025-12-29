@@ -6,7 +6,6 @@ from lib.constants import (
     CITY_MAX_COST,
     DEFENSE_POST_BASE_COST,
     DEFENSE_POST_MAX_COST,
-    MISSILE_SILO_COST,
     PORT_BASE_COST,
     PORT_MAX_COST,
 )
@@ -19,6 +18,12 @@ class Action(Enum):
     ATTACK = "attack"
     BUILD = "build_unit"
     NONE = "none"
+
+
+class BuildingType(Enum):
+    CITY = "City"
+    PORT = "Port"
+    POST = "Defense Post"
 
 
 def format_number(v: float | None, fmt: str = "{:.2f}") -> str:
@@ -58,13 +63,11 @@ def get_action_key(action: dict[str, Any]) -> str:
     return Action.NONE.value
 
 
-def calculate_building_cost(building_type: str, current_count: int) -> int:
-    if building_type == "City":
+def calculate_building_cost(building_type: BuildingType, current_count: int) -> int:
+    if building_type == BuildingType.CITY:
         return min(CITY_MAX_COST, 2**current_count * CITY_BASE_COST)
-    if building_type == "Port":
+    if building_type == BuildingType.PORT:
         return min(PORT_MAX_COST, 2**current_count * PORT_BASE_COST)
-    if building_type == "Defense Post":
+    if building_type == BuildingType.POST:
         return min(DEFENSE_POST_MAX_COST, (current_count + 1) * DEFENSE_POST_BASE_COST)
-    if building_type == "Missile Silo":
-        return MISSILE_SILO_COST
     return 0
