@@ -38,7 +38,7 @@ from lib.constants import (
 from lib.player_state import PlayerState
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
-from lib.utils import Action, calculate_building_cost, get_action_key
+from lib.utils import Action, BuildingType, calculate_building_cost, get_action_key
 
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
@@ -172,14 +172,14 @@ class Environment:
         )
 
     def can_afford_building(
-        self, building_type: str, state: dict[str, Any]
-    ) -> tuple[bool, int]:
+        self, building_type: BuildingType, state: dict[str, Any]
+    ) -> bool:
         me = state.get("me", {})
         gold = me.get("gold", 0)
         buildings = me.get("buildings", {})
-        count = buildings.get(building_type.lower() + "s", 0)
+        count = buildings.get(building_type.value.lower() + "s", 0)
         cost = calculate_building_cost(building_type, count)
-        return (gold >= cost, cost)
+        return gold >= cost
 
     def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         candidates = state.get("candidates") or []
@@ -196,9 +196,10 @@ class Environment:
 
         actions = [{"type": Action.NONE.value}]
 
-        can_build, cost = self.can_afford_building("City", state)
-        if can_build:
-            actions.append({"type": Action.BUILD.value, "unit": "City"})
+        if self.can_afford_building(BuildingType.CITY, state):
+            actions.append(
+                {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+            )
 
         for ratio in ATTACK_RATIOS:
             for idx, candidate in enumerate(candidates):
@@ -313,10 +314,10 @@ class Agent:
             return {"type": Action.NONE.value}
 
         state = self.env.current_state or {}
-        if not state.get("inSpawnPhase"):
-            can_build, cost = self.env.can_afford_building("City", state)
-            if can_build:
-                return {"type": Action.BUILD.value, "unit": "City"}
+        if not state.get("inSpawnPhase") and self.env.can_afford_building(
+            BuildingType.CITY, state
+        ):
+            return {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
 
         if random.random() < self.epsilon:
             self.random_actions += 1
