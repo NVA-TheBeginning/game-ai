@@ -24,6 +24,21 @@ def make_id(length: int = 8) -> str:
     return "".join(random.choice(alphabet) for _ in range(length))
 
 
+class SpawnAction:
+    async def execute(self, ws, action: dict, context: dict) -> None:
+        await context["bot"].handle_spawn_action(ws, action)
+
+
+class AttackAction:
+    async def execute(self, ws, action: dict, context: dict) -> None:
+        await context["bot"].handle_attack_action(ws, action, context["state"])
+
+
+class BuildAction:
+    async def execute(self, ws, action: dict, context: dict) -> None:
+        await context["bot"].handle_build_action(ws, action)
+
+
 class BotConnection(ConnectionHandler):
     def __init__(self, agent, env):
         super().__init__(agent, env)
@@ -36,6 +51,11 @@ class BotConnection(ConnectionHandler):
         self.metrics = GameMetrics() if GRAPH_ENABLED else None
         self.game_count = 0
         self.previous_owned_count: int = 0
+        self.actions = {
+            Action.SPAWN.value: SpawnAction(),
+            Action.ATTACK.value: AttackAction(),
+            Action.BUILD.value: BuildAction(),
+        }
 
     def debug_print_state(self, state: dict) -> None:
         if DEBUG_MODE:
@@ -81,15 +101,10 @@ class BotConnection(ConnectionHandler):
         self.sync_player_state(state)
 
         action_type = action.get("type")
+        handler = self.actions.get(action_type)
 
-        if action_type == Action.SPAWN.value:
-            await self.handle_spawn_action(ws, action)
-
-        elif action_type == Action.ATTACK.value:
-            await self.handle_attack_action(ws, action, state)
-
-        elif action_type == Action.BUILD.value:
-            await self.handle_build_action(ws, action)
+        if handler:
+            await handler.execute(ws, action, {"bot": self, "state": state})
 
     async def handle_spawn_action(self, ws, action: dict) -> None:
         if self.has_spawned:
