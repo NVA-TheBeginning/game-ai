@@ -17,7 +17,7 @@ FLOAT_TOLERANCE = 1e-9
 class Action(Enum):
     SPAWN = "spawn"
     ATTACK = "attack"
-    BUILD = "build"
+    BUILD = "build_unit"
     NONE = "none"
 
 

@@ -147,7 +147,6 @@ class BotConnection(ConnectionHandler):
             return
 
         unit = action.get("unit")
-        print(f"DEBUG: Sending build intent for {unit}")
         intent_build = {
             "type": "intent",
             "clientID": self.client_id,
@@ -155,8 +154,10 @@ class BotConnection(ConnectionHandler):
             "intent": {
                 "type": Action.BUILD.value,
                 "clientID": self.client_id,
-                "playerID": self.player_id,
+                "player": self.player_id,
                 "unit": unit,
+                "x": -1,
+                "y": -1,
             },
         }
         await self.send_intent(ws, intent_build, f"BUILD {unit}")
