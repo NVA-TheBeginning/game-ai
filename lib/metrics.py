@@ -58,7 +58,11 @@ class GameMetrics:
         self.epsilons.append(epsilon if epsilon is not None else 0.0)
 
     def generate_graphs(
-        self, output_dir: str = ".", filename: str = "metrics.png"
+        self,
+        output_dir: str = ".",
+        filename: str = "metrics.png",
+        alpha: float | None = None,
+        gamma: float | None = None,
     ) -> str:
         if not self.game_scores:
             return ""
@@ -155,6 +159,25 @@ class GameMetrics:
         ax_eps.tick_params(axis="y", labelcolor="orange")
 
         plt.tight_layout()
+
+        if alpha is not None or gamma is not None:
+            params_text = "Training Parameters:\n"
+            if alpha is not None:
+                params_text += f"Alpha (α): {alpha}\n"
+            if gamma is not None:
+                params_text += f"Gamma (γ): {gamma}\n"
+
+            fig.text(
+                0.98,
+                0.98,
+                params_text,
+                ha="right",
+                va="top",
+                fontsize=10,
+                bbox={"boxstyle": "round,pad=0.4", "facecolor": "wheat", "alpha": 0.9},
+                transform=fig.transFigure,
+            )
+
         plt.savefig(output_path, dpi=100, bbox_inches="tight")
         plt.close(fig)
 
