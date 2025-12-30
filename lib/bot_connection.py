@@ -314,11 +314,10 @@ class BotConnection(ConnectionHandler):
                 self.previous_owned_count = 0
                 self.running = True
 
-                print(f"\n=== Starting Game #{self.game_count} ===")
+                print(f"\n=== Attempting to connect (Game #{self.game_count + 1}) ===")
                 print(
                     f"Connecting to server {SERVER_WS} with clientID={self.client_id}"
                 )
-                self.game_count += 1
 
                 try:
                     async with websockets.connect(SERVER_WS) as ws:
@@ -329,6 +328,11 @@ class BotConnection(ConnectionHandler):
                             "username": self.username,
                         }
                         await self.send_intent(ws, hello, "HELLO")
+
+                        self.game_count += 1
+                        print(
+                            f"Connected successfully! Game #{self.game_count} started"
+                        )
                         ping_task = asyncio.create_task(self.start_ping_loop(ws))
                         autosave_task = asyncio.create_task(self.autosave_loop())
 
@@ -357,7 +361,10 @@ class BotConnection(ConnectionHandler):
                             qtable_size=qtable_size,
                             epsilon=self.agent.epsilon,
                         )
-                        graph_path = self.metrics.generate_graphs()
+                        graph_path = self.metrics.generate_graphs(
+                            alpha=self.agent.alpha,
+                            gamma=self.agent.gamma,
+                        )
                         if graph_path:
                             print(f"Graph saved to: {graph_path}")
                         summary = self.metrics.get_summary()
