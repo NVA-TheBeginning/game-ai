@@ -196,10 +196,9 @@ class Environment:
 
         actions = [{"type": Action.NONE.value}]
 
-        if self.can_afford_building(BuildingType.CITY, state):
-            actions.append(
-                {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
-            )
+        actions.append(
+            {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+        )
 
         for ratio in ATTACK_RATIOS:
             for idx, candidate in enumerate(candidates):
@@ -263,10 +262,17 @@ class Agent:
             ratio = calculate_neighbor_ratio(population, enemy_troops)
             neighbor_ratios.append(ratio)
 
+        buildings = me.get("buildings", {})
+        gold = me.get("gold", 0)
+        city_count = buildings.get("cities", 0)
+        city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+        can_afford_city = int(gold >= city_cost)
+
         return (
             in_spawn,
             population_pct,
             conquest_pct,
+            can_afford_city,
             tuple(neighbor_ratios),
         )
 
@@ -281,7 +287,7 @@ class Agent:
     def _format_status_line(self, state_key, state):
         tick = state.get("tick", 0)
         player = PlayerState(state)
-        in_spawn, pop_pct, conquest_state, neighbor_ratios = state_key
+        in_spawn, pop_pct, conquest_state, can_afford_city, neighbor_ratios = state_key
         neighbors_str = ",".join(
             str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
         )
@@ -312,12 +318,6 @@ class Agent:
 
         if not possible_actions:
             return {"type": Action.NONE.value}
-
-        state = self.env.current_state or {}
-        if not state.get("inSpawnPhase") and self.env.can_afford_building(
-            BuildingType.CITY, state
-        ):
-            return {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
 
         if random.random() < self.epsilon:
             self.random_actions += 1
