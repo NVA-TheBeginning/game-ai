@@ -345,9 +345,16 @@ class Agent:
         if action_type == Action.SPAWN.value:
             return f"spawn:{action.get('x')},{action.get('y')}"
         if action_type == Action.ATTACK.value:
-            return (
-                f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
-            )
+            neighbor_idx = action.get('neighbor_index')
+            troop_ratio = action.get('ratio')
+
+            candidates = (self.env.current_state or {}).get("candidates") or []
+            if neighbor_idx is not None and neighbor_idx < len(candidates):
+                enemy_troops = candidates[neighbor_idx].get("troops", 0)
+                my_troops = (self.env.current_state or {}).get("me", {}).get("population", 0)
+                strength_ratio = calculate_neighbor_ratio(my_troops, enemy_troops)
+                return f"attack:strength_{strength_ratio}|troops:{troop_ratio}"
+            return Action.NONE.value
         return Action.NONE.value
 
     async def save(self) -> None:
