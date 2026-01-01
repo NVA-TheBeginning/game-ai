@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["ruff>=0.14.10", "ty>=0.0.5"]
+dev = ["ruff>=0.14.10", "ty>=0.0.7"]
 
 [tool.ruff.lint]
 extend-select = [
@@ -41,5 +41,6 @@ extend-select = [
 ]
 ignore = [
     "PLR0912",  # Too many branches
-    "PLR0915"  # Too many statements
+    "PLR0915",  # Too many statements
+    "RUF001",  # Allow greek letters in strings
 ]

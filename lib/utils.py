@@ -1,13 +1,29 @@
 from enum import Enum
 from typing import Any
 
+from lib.constants import (
+    CITY_BASE_COST,
+    CITY_MAX_COST,
+    DEFENSE_POST_BASE_COST,
+    DEFENSE_POST_MAX_COST,
+    PORT_BASE_COST,
+    PORT_MAX_COST,
+)
+
 FLOAT_TOLERANCE = 1e-9
 
 
 class Action(Enum):
     SPAWN = "spawn"
     ATTACK = "attack"
+    BUILD = "build_unit"
     NONE = "none"
+
+
+class BuildingType(Enum):
+    CITY = "City"
+    PORT = "Port"
+    POST = "Defense Post"
 
 
 def format_number(v: float | None, fmt: str = "{:.2f}") -> str:
@@ -42,4 +58,16 @@ def get_action_key(action: dict[str, Any]) -> str:
         return f"spawn:{action.get('x')},{action.get('y')}"
     if action_type == Action.ATTACK.value:
         return f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
+    if action_type == Action.BUILD.value:
+        return f"build:{action.get('unit')}"
     return Action.NONE.value
+
+
+def calculate_building_cost(building_type: BuildingType, current_count: int) -> int:
+    if building_type == BuildingType.CITY:
+        return min(CITY_MAX_COST, 2**current_count * CITY_BASE_COST)
+    if building_type == BuildingType.PORT:
+        return min(PORT_MAX_COST, 2**current_count * PORT_BASE_COST)
+    if building_type == BuildingType.POST:
+        return min(DEFENSE_POST_MAX_COST, (current_count + 1) * DEFENSE_POST_BASE_COST)
+    return 0

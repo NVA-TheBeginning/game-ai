@@ -35,9 +35,10 @@ from lib.constants import (
     REWARD_VICTORY,
     SPAWN_PHASE_DURATION,
 )
+from lib.player_state import PlayerState
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
-from lib.utils import Action
+from lib.utils import Action, BuildingType, calculate_building_cost
 
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
@@ -104,22 +105,18 @@ class Environment:
         return 0.0
 
     def rewards_population(self, new_state: dict[str, Any]) -> float:
-        new_me = (new_state or {}).get("me", {})
-        population = new_me.get("population", 0)
-        max_population = new_me.get("maxPopulation", 1)
+        player = PlayerState(new_state or {})
+        pop_ratio = player.population_ratio
 
-        if max_population > 0:
-            pop_ratio = population / max_population
-            if pop_ratio < LOW_POPULATION_THRESHOLD:
-                return REWARD_VERY_LOW_POPULATION
-            if pop_ratio > HIGH_POPULATION_THRESHOLD:
-                return REWARD_VERY_HIGH_POPULATION
+        if pop_ratio < LOW_POPULATION_THRESHOLD:
+            return REWARD_VERY_LOW_POPULATION
+        if pop_ratio > HIGH_POPULATION_THRESHOLD:
+            return REWARD_VERY_HIGH_POPULATION
         return 0.0
 
     def rewards_conquest(self, new_state: dict[str, Any]) -> float:
-        new_me = (new_state or {}).get("me", {})
-        conquest_pct = new_me.get("conquestPercent", 0)
-        if conquest_pct >= CONQUEST_WIN_THRESHOLD:
+        player = PlayerState(new_state or {})
+        if player.conquest_percent >= CONQUEST_WIN_THRESHOLD:
             return REWARD_VICTORY
         return 0.0
 
@@ -127,13 +124,8 @@ class Environment:
         self, old_state: dict[str, Any], action: dict[str, Any] | None
     ) -> float:
         if action and action.get("type") == Action.ATTACK.value:
-            old_me = (old_state or {}).get("me", {})
-            population = old_me.get("population", 0)
-            max_population = old_me.get("maxPopulation", 1)
-            if (
-                max_population > 0
-                and population / max_population < LOW_POPULATION_THRESHOLD
-            ):
+            player = PlayerState(old_state or {})
+            if player.population_ratio < LOW_POPULATION_THRESHOLD:
                 return REWARD_ATTACK_AT_LOW_POPULATION
         return 0.0
 
@@ -227,18 +219,35 @@ class Agent:
             ratio = calculate_neighbor_ratio(population, enemy_troops)
             neighbor_ratios.append(ratio)
 
+        buildings = me.get("buildings", {})
+        gold = me.get("gold", 0)
+        city_count = buildings.get("cities", 0)
+        city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+        can_afford_city = int(gold >= city_cost)
+
         return (
             in_spawn,
             population_pct,
             conquest_pct,
+            can_afford_city,
             tuple(neighbor_ratios),
         )
 
+    def _format_status_line(self, state_key, state):
+        tick = state.get("tick", 0)
+        player = PlayerState(state)
+        in_spawn, pop_pct, conquest_state, can_afford_city, neighbor_ratios = state_key
+        neighbors_str = ",".join(
+            str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
+        )
+        if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
+            neighbors_str += "..."
+        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},({neighbors_str}))"
+        return f"\rTick: {tick:4d} | Pop: {player.population:7d}/{player.max_population:7d} | Conquest: {player.conquest_percent:2d}% | Gold: {player.gold:6d} | Cities: {player.city_count} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
+
     async def do(self, action):
         previous_state = self.state
-
         self.state, self.reward = await self.env.do(action)
-
         new_state_key = self.get_state()
         prev_state_key = previous_state
 
@@ -258,37 +267,22 @@ class Agent:
                 action_key = f"attack:{strength_ratio}|{troop_ratio}"
             else:
                 action_key = Action.NONE.value
+        elif action_type == Action.BUILD.value:
+            action_key = f"build:{action.get('unit')}"
         else:
             action_key = Action.NONE.value
 
         current_q = await self.qtable.get_q_value(prev_state_key, action_key)
         max_next_q = await self.qtable.get_max_q_value(new_state_key)
-
         delta = self.alpha * (self.reward + self.gamma * max_next_q - current_q)
         new_q = current_q + delta
-
         await self.qtable.set_q_value(prev_state_key, action_key, new_q)
 
         self.score += self.reward
         self.total_reward += self.reward
         self.iterations += 1
 
-        state = self.env.current_state or {}
-        tick = state.get("tick", 0)
-        me = state.get("me", {})
-        pop = me.get("population", 0)
-        max_pop = me.get("maxPopulation", 1)
-        conquest_pct = me.get("conquestPercent", 0)
-
-        in_spawn, pop_pct, conquest_state, neighbor_ratios = new_state_key
-        neighbors_str = ",".join(
-            str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
-        )
-        if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
-            neighbors_str += "..."
-        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},({neighbors_str}))"
-
-        status = f"\rTick: {tick:4d} | Pop: {pop:7d}/{max_pop:7d} | Conquest: {conquest_pct:2d}% | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
+        status = self._format_status_line(new_state_key, self.env.current_state or {})
         print(status + " " * 20, end="", flush=True)
 
         self.state = new_state_key
@@ -309,6 +303,15 @@ class Agent:
             possible_actions = [{"type": Action.NONE.value}]
         else:
             possible_actions = [{"type": Action.NONE.value}]
+            me = state.get("me", {})
+            gold = me.get("gold", 0)
+            buildings = me.get("buildings", {})
+            city_count = buildings.get("cities", 0)
+            city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+            if gold >= city_cost:
+                possible_actions.append(
+                    {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+                )
             for ratio in ATTACK_RATIOS:
                 for idx, candidate in enumerate(candidates):
                     possible_actions.append(
@@ -345,6 +348,8 @@ class Agent:
                         action_keys.append(f"attack:{strength_ratio}|{troop_ratio}")
                     else:
                         action_keys.append(Action.NONE.value)
+                elif action_type == Action.BUILD.value:
+                    action_keys.append(f"build:{a.get('unit')}")
                 else:
                     action_keys.append(Action.NONE.value)
 
