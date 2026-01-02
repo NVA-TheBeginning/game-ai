@@ -8,12 +8,12 @@ from websockets.asyncio.server import serve
 from lib.bot_connection import BotConnection
 from lib.constants import (
     ALPHA,
-    ATTACK_RATIOS,
     CONQUEST_WIN_THRESHOLD,
     EPSILON,
     GAMMA,
     HIGH_POPULATION_THRESHOLD,
     INTERFACE_PORT,
+    LEARNING_ASSISTANCE,
     LOW_POPULATION_THRESHOLD,
     MAX_NEIGHBORS_DISPLAY,
     MODE,
@@ -295,30 +295,78 @@ class Agent:
         me = state.get("me") or {}
         possible_actions = [{"type": Action.NONE.value}]
 
-        if state.get("inSpawnPhase"):
-            if me.get("ownedCount", 0) == 0:
-                possible_actions = [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
-        elif candidates:
-            gold = me.get("gold", 0)
-            city_count = me.get("buildings", {}).get("cities", 0)
-            city_cost = calculate_building_cost(BuildingType.CITY, city_count)
-
-            if gold >= city_cost:
-                possible_actions.append(
-                    {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
-                )
-
-            for idx, candidate in enumerate(candidates):
-                for ratio in ATTACK_RATIOS:
+        match LEARNING_ASSISTANCE:
+            case "low":
+                possible_actions = [
+                    {"type": Action.NONE.value},
+                    {"type": Action.SPAWN.value, "x": -1, "y": -1},
+                    {"type": Action.BUILD.value, "unit": BuildingType.CITY.value},
+                ]
+                for idx, candidate in enumerate(candidates):
                     possible_actions.append(
                         {
                             "type": Action.ATTACK.value,
                             "neighbor_index": idx,
                             "x": candidate.get("x"),
                             "y": candidate.get("y"),
-                            "ratio": ratio,
+                            "ratio": 0.2,
                         }
                     )
+            case "high":
+                if state.get("inSpawnPhase"):
+                    if me.get("ownedCount", 0) == 0:
+                        possible_actions = [
+                            {"type": Action.SPAWN.value, "x": -1, "y": -1}
+                        ]
+                elif candidates:
+                    gold = me.get("gold", 0)
+                    city_count = me.get("buildings", {}).get("cities", 0)
+                    city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+
+                    if gold >= city_cost:
+                        possible_actions.append(
+                            {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+                        )
+
+                    population = me.get("population", 0)
+                    max_population = me.get("maxPopulation", 1)
+                    if population >= HIGH_POPULATION_THRESHOLD * max_population:
+                        for idx, candidate in enumerate(candidates):
+                            possible_actions.append(
+                                {
+                                    "type": Action.ATTACK.value,
+                                    "neighbor_index": idx,
+                                    "x": candidate.get("x"),
+                                    "y": candidate.get("y"),
+                                    "ratio": 0.2,
+                                }
+                            )
+            case _:
+                if state.get("inSpawnPhase"):
+                    if me.get("ownedCount", 0) == 0:
+                        possible_actions = [
+                            {"type": Action.SPAWN.value, "x": -1, "y": -1}
+                        ]
+                elif candidates:
+                    gold = me.get("gold", 0)
+                    city_count = me.get("buildings", {}).get("cities", 0)
+                    city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+
+                    if gold >= city_cost:
+                        possible_actions.append(
+                            {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+                        )
+
+                    for idx, candidate in enumerate(candidates):
+                        possible_actions.append(
+                            {
+                                "type": Action.ATTACK.value,
+                                "neighbor_index": idx,
+                                "x": candidate.get("x"),
+                                "y": candidate.get("y"),
+                                "ratio": 0.2,
+                            }
+                        )
 
         if not possible_actions:
             return {"type": Action.NONE.value}

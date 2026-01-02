@@ -95,6 +95,8 @@ EPSILON = float(os.getenv("EPSILON", "0.05"))
 GAMMA = float(os.getenv("GAMMA", "0.999"))
 ALPHA = float(os.getenv("ALPHA", "0.5"))
 
+LEARNING_ASSISTANCE = os.getenv("LEARNING_ASSISTANCE", "mid")
+
 ATTACK_RATIOS = [0.20]
 
 RATIO_4_TIMES_HIGHER = 4.0
