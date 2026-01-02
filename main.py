@@ -242,7 +242,7 @@ class Agent:
         )
         if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
             neighbors_str += "..."
-        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},({neighbors_str}))"
+        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},{can_afford_city},({neighbors_str}))"
         return f"\rTick: {tick:4d} | Pop: {player.population:7d}/{player.max_population:7d} | Conquest: {player.conquest_percent:2d}% | Gold: {player.gold:6d} | Cities: {player.city_count} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
 
     async def do(self, action):
