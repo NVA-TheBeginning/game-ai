@@ -27,6 +27,7 @@ from lib.constants import (
     REWARD_ATTACK_AT_LOW_POPULATION,
     REWARD_CONQUEST_GAIN,
     REWARD_CONQUEST_LOSS,
+    REWARD_INVALID_ACTION,
     REWARD_SMALL_STEP,
     REWARD_SPAWN_FAILED,
     REWARD_SPAWN_SUCCESS,
@@ -163,6 +164,17 @@ class Environment:
         if tick < SPAWN_PHASE_DURATION:
             return self.rewards_spawn(old_state, new_state, action)
 
+        if LEARNING_ASSISTANCE == "low" and action:
+            old_me = old_state.get("me", {})
+            action_type = action.get("type")
+
+            if (
+                (action_type == Action.SPAWN.value and old_me.get("ownedCount", 0) > 0)
+                or (action_type == Action.ATTACK.value and old_me.get("population", 0) == 0)
+                or (action_type == Action.BUILD.value and old_me.get("gold", 0) < calculate_building_cost(BuildingType.CITY, old_me.get("buildings", {}).get("cities", 0)))
+            ):
+                return REWARD_INVALID_ACTION
+
         return (
             REWARD_SMALL_STEP
             + self.rewards_territory(old_state, new_state)
@@ -297,21 +309,27 @@ class Agent:
 
         match LEARNING_ASSISTANCE:
             case "low":
-                possible_actions = [
-                    {"type": Action.NONE.value},
-                    {"type": Action.SPAWN.value, "x": -1, "y": -1},
-                    {"type": Action.BUILD.value, "unit": BuildingType.CITY.value},
-                ]
-                for idx, candidate in enumerate(candidates):
-                    possible_actions.append(
-                        {
-                            "type": Action.ATTACK.value,
-                            "neighbor_index": idx,
-                            "x": candidate.get("x"),
-                            "y": candidate.get("y"),
-                            "ratio": 0.2,
-                        }
-                    )
+                if state.get("inSpawnPhase"):
+                    possible_actions = [
+                        {"type": Action.NONE.value},
+                        {"type": Action.SPAWN.value, "x": -1, "y": -1},
+                    ]
+                else:
+                    possible_actions = [
+                        {"type": Action.NONE.value},
+                        {"type": Action.SPAWN.value, "x": -1, "y": -1},
+                        {"type": Action.BUILD.value, "unit": BuildingType.CITY.value},
+                    ]
+                    for idx, candidate in enumerate(candidates):
+                        possible_actions.append(
+                            {
+                                "type": Action.ATTACK.value,
+                                "neighbor_index": idx,
+                                "x": candidate.get("x"),
+                                "y": candidate.get("y"),
+                                "ratio": 0.2,
+                            }
+                        )
             case "high":
                 if state.get("inSpawnPhase"):
                     if me.get("ownedCount", 0) == 0:
