@@ -292,28 +292,24 @@ class Agent:
         state = self.env.current_state or {}
         candidates = state.get("candidates") or []
 
+        me = state.get("me") or {}
+        possible_actions = [{"type": Action.NONE.value}]
+
         if state.get("inSpawnPhase"):
-            me = state.get("me") or {}
-            has_spawned = me.get("ownedCount", 0) > 0
-            if not has_spawned:
+            if me.get("ownedCount", 0) == 0:
                 possible_actions = [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
-            else:
-                possible_actions = [{"type": Action.NONE.value}]
-        elif not candidates:
-            possible_actions = [{"type": Action.NONE.value}]
-        else:
-            possible_actions = [{"type": Action.NONE.value}]
-            me = state.get("me", {})
+        elif candidates:
             gold = me.get("gold", 0)
-            buildings = me.get("buildings", {})
-            city_count = buildings.get("cities", 0)
+            city_count = me.get("buildings", {}).get("cities", 0)
             city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+
             if gold >= city_cost:
                 possible_actions.append(
                     {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
                 )
-            for ratio in ATTACK_RATIOS:
-                for idx, candidate in enumerate(candidates):
+
+            for idx, candidate in enumerate(candidates):
+                for ratio in ATTACK_RATIOS:
                     possible_actions.append(
                         {
                             "type": Action.ATTACK.value,
