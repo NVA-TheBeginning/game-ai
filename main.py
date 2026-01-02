@@ -38,7 +38,7 @@ from lib.constants import (
 from lib.player_state import PlayerState
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
-from lib.utils import Action, BuildingType, calculate_building_cost, get_action_key
+from lib.utils import Action, BuildingType, calculate_building_cost
 
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
@@ -171,50 +171,6 @@ class Environment:
             + self.rewards_attack_at_low_population(old_state, action)
         )
 
-    def can_afford_building(
-        self, building_type: BuildingType, state: dict[str, Any]
-    ) -> bool:
-        me = state.get("me", {})
-        gold = me.get("gold", 0)
-        buildings = me.get("buildings", {})
-        count = buildings.get(building_type.value.lower() + "s", 0)
-        cost = calculate_building_cost(building_type, count)
-        return gold >= cost
-
-    def get_possible_actions(self, state: dict[str, Any]) -> list[dict[str, Any]]:
-        candidates = state.get("candidates") or []
-
-        if state.get("inSpawnPhase"):
-            me = state.get("me") or {}
-            has_spawned = me.get("ownedCount", 0) > 0
-            if not has_spawned:
-                return [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
-            return [{"type": Action.NONE.value}]
-
-        if not candidates:
-            return [{"type": Action.NONE.value}]
-
-        actions = [{"type": Action.NONE.value}]
-
-        if self.can_afford_building(BuildingType.CITY, state):
-            actions.append(
-                {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
-            )
-
-        for ratio in ATTACK_RATIOS:
-            for idx, candidate in enumerate(candidates):
-                actions.append(
-                    {
-                        "type": Action.ATTACK.value,
-                        "neighbor_index": idx,
-                        "x": candidate.get("x"),
-                        "y": candidate.get("y"),
-                        "ratio": ratio,
-                    }
-                )
-
-        return actions
-
 
 class Agent:
     def __init__(self, env):
@@ -263,67 +219,140 @@ class Agent:
             ratio = calculate_neighbor_ratio(population, enemy_troops)
             neighbor_ratios.append(ratio)
 
+        buildings = me.get("buildings", {})
+        gold = me.get("gold", 0)
+        city_count = buildings.get("cities", 0)
+        city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+        can_afford_city = int(gold >= city_cost)
+
         return (
             in_spawn,
             population_pct,
             conquest_pct,
+            can_afford_city,
             tuple(neighbor_ratios),
         )
-
-    async def _update_q_value(self, prev_state, action, new_state):
-        action_key = get_action_key(action)
-        current_q = await self.qtable.get_q_value(prev_state, action_key)
-        max_next_q = await self.qtable.get_max_q_value(new_state)
-        delta = self.alpha * (self.reward + self.gamma * max_next_q - current_q)
-        new_q = current_q + delta
-        await self.qtable.set_q_value(prev_state, action_key, new_q)
-
-    def _format_status_line(self, state_key, state):
-        tick = state.get("tick", 0)
-        player = PlayerState(state)
-        in_spawn, pop_pct, conquest_state, neighbor_ratios = state_key
-        neighbors_str = ",".join(
-            str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
-        )
-        if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
-            neighbors_str += "..."
-        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},({neighbors_str}))"
-        return f"\rTick: {tick:4d} | Pop: {player.population:7d}/{player.max_population:7d} | Conquest: {player.conquest_percent:2d}% | Gold: {player.gold:6d} | Cities: {player.city_count} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
 
     async def do(self, action):
         previous_state = self.state
         self.state, self.reward = await self.env.do(action)
         new_state_key = self.get_state()
+        prev_state_key = previous_state
 
-        await self._update_q_value(previous_state, action, new_state_key)
+        action_type = action.get("type")
+        if action_type == Action.SPAWN.value:
+            action_key = "spawn"
+        elif action_type == Action.ATTACK.value:
+            neighbor_idx = action.get("neighbor_index")
+            troop_ratio = action.get("ratio")
+            candidates = (self.env.current_state or {}).get("candidates") or []
+            if neighbor_idx is not None and neighbor_idx < len(candidates):
+                enemy_troops = candidates[neighbor_idx].get("troops", 0)
+                my_troops = (
+                    (self.env.current_state or {}).get("me", {}).get("population", 0)
+                )
+                strength_ratio = calculate_neighbor_ratio(my_troops, enemy_troops)
+                action_key = f"attack:{strength_ratio}|{troop_ratio}"
+            else:
+                action_key = Action.NONE.value
+        elif action_type == Action.BUILD.value:
+            action_key = f"build:{action.get('unit')}"
+        else:
+            action_key = Action.NONE.value
+
+        current_q = await self.qtable.get_q_value(prev_state_key, action_key)
+        max_next_q = await self.qtable.get_max_q_value(new_state_key)
+        delta = self.alpha * (self.reward + self.gamma * max_next_q - current_q)
+        new_q = current_q + delta
+        await self.qtable.set_q_value(prev_state_key, action_key, new_q)
 
         self.score += self.reward
         self.total_reward += self.reward
         self.iterations += 1
 
-        status = self._format_status_line(new_state_key, self.env.current_state or {})
+        state = self.env.current_state or {}
+        tick = state.get("tick", 0)
+        player = PlayerState(state)
+        in_spawn, pop_pct, conquest_state, can_afford_city, neighbor_ratios = (
+            new_state_key
+        )
+        neighbors_str = ",".join(
+            str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
+        )
+        if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
+            neighbors_str += "..."
+        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},{can_afford_city},({neighbors_str}))"
+        status = f"\rTick: {tick:4d} | Pop: {player.population:7d}/{player.max_population:7d} | Conquest: {player.conquest_percent:2d}% | Gold: {player.gold:6d} | Cities: {player.city_count} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
         print(status + " " * 20, end="", flush=True)
 
         self.state = new_state_key
 
     async def best_action(self):
         self.state = self.get_state()
-        possible_actions = self.env.get_possible_actions(self.env.current_state or {})
+        state = self.env.current_state or {}
+        candidates = state.get("candidates") or []
+
+        if state.get("inSpawnPhase"):
+            me = state.get("me") or {}
+            has_spawned = me.get("ownedCount", 0) > 0
+            if not has_spawned:
+                possible_actions = [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
+            else:
+                possible_actions = [{"type": Action.NONE.value}]
+        elif not candidates:
+            possible_actions = [{"type": Action.NONE.value}]
+        else:
+            possible_actions = [{"type": Action.NONE.value}]
+            me = state.get("me", {})
+            gold = me.get("gold", 0)
+            buildings = me.get("buildings", {})
+            city_count = buildings.get("cities", 0)
+            city_cost = calculate_building_cost(BuildingType.CITY, city_count)
+            if gold >= city_cost:
+                possible_actions.append(
+                    {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+                )
+            for ratio in ATTACK_RATIOS:
+                for idx, candidate in enumerate(candidates):
+                    possible_actions.append(
+                        {
+                            "type": Action.ATTACK.value,
+                            "neighbor_index": idx,
+                            "x": candidate.get("x"),
+                            "y": candidate.get("y"),
+                            "ratio": ratio,
+                        }
+                    )
 
         if not possible_actions:
             return {"type": Action.NONE.value}
-
-        state = self.env.current_state or {}
-        if not state.get("inSpawnPhase") and self.env.can_afford_building(
-            BuildingType.CITY, state
-        ):
-            return {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
 
         if random.random() < self.epsilon:
             self.random_actions += 1
             action = random.choice(possible_actions)
         else:
-            action_keys = [get_action_key(a) for a in possible_actions]
+            action_keys = []
+            for a in possible_actions:
+                action_type = a.get("type")
+                if action_type == Action.SPAWN.value:
+                    action_keys.append("spawn")
+                elif action_type == Action.ATTACK.value:
+                    neighbor_idx = a.get("neighbor_index")
+                    troop_ratio = a.get("ratio")
+                    if isinstance(neighbor_idx, int) and neighbor_idx < len(candidates):
+                        enemy_troops = candidates[neighbor_idx].get("troops", 0)
+                        my_troops = state.get("me", {}).get("population", 0)
+                        strength_ratio = calculate_neighbor_ratio(
+                            my_troops, enemy_troops
+                        )
+                        action_keys.append(f"attack:{strength_ratio}|{troop_ratio}")
+                    else:
+                        action_keys.append(Action.NONE.value)
+                elif action_type == Action.BUILD.value:
+                    action_keys.append(f"build:{a.get('unit')}")
+                else:
+                    action_keys.append(Action.NONE.value)
+
             q_values = await self.qtable.get_state_actions(self.state, action_keys)
 
             if not q_values:
@@ -332,8 +361,8 @@ class Agent:
             else:
                 best_action_key = max(q_values, key=lambda k: q_values[k])
                 action = None
-                for a in possible_actions:
-                    if get_action_key(a) == best_action_key:
+                for i, a in enumerate(possible_actions):
+                    if action_keys[i] == best_action_key:
                         self.qtable_actions += 1
                         action = a
                         break
