@@ -233,18 +233,6 @@ class Agent:
             tuple(neighbor_ratios),
         )
 
-    def _format_status_line(self, state_key, state):
-        tick = state.get("tick", 0)
-        player = PlayerState(state)
-        in_spawn, pop_pct, conquest_state, can_afford_city, neighbor_ratios = state_key
-        neighbors_str = ",".join(
-            str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
-        )
-        if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
-            neighbors_str += "..."
-        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},{can_afford_city},({neighbors_str}))"
-        return f"\rTick: {tick:4d} | Pop: {player.population:7d}/{player.max_population:7d} | Conquest: {player.conquest_percent:2d}% | Gold: {player.gold:6d} | Cities: {player.city_count} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
-
     async def do(self, action):
         previous_state = self.state
         self.state, self.reward = await self.env.do(action)
@@ -282,7 +270,19 @@ class Agent:
         self.total_reward += self.reward
         self.iterations += 1
 
-        status = self._format_status_line(new_state_key, self.env.current_state or {})
+        state = self.env.current_state or {}
+        tick = state.get("tick", 0)
+        player = PlayerState(state)
+        in_spawn, pop_pct, conquest_state, can_afford_city, neighbor_ratios = (
+            new_state_key
+        )
+        neighbors_str = ",".join(
+            str(n) for n in neighbor_ratios[:MAX_NEIGHBORS_DISPLAY]
+        )
+        if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
+            neighbors_str += "..."
+        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},{can_afford_city},({neighbors_str}))"
+        status = f"\rTick: {tick:4d} | Pop: {player.population:7d}/{player.max_population:7d} | Conquest: {player.conquest_percent:2d}% | Gold: {player.gold:6d} | Cities: {player.city_count} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
         print(status + " " * 20, end="", flush=True)
 
         self.state = new_state_key
@@ -339,7 +339,7 @@ class Agent:
                 elif action_type == Action.ATTACK.value:
                     neighbor_idx = a.get("neighbor_index")
                     troop_ratio = a.get("ratio")
-                    if neighbor_idx is not None and neighbor_idx < len(candidates):
+                    if isinstance(neighbor_idx, int) and neighbor_idx < len(candidates):
                         enemy_troops = candidates[neighbor_idx].get("troops", 0)
                         my_troops = state.get("me", {}).get("population", 0)
                         strength_ratio = calculate_neighbor_ratio(
