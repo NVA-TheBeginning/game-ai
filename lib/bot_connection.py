@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import random
 import string
 
@@ -40,11 +41,11 @@ class BuildAction:
 
 
 class BotConnection(ConnectionHandler):
-    def __init__(self, agent, env):
+    def __init__(self, agent, env, client_id: str | None = None):
         super().__init__(agent, env)
-        self.client_id = "agent001"
+        self.client_id = client_id or os.getenv("AGENT_CLIENT_ID", f"agent{make_id(4)}")
         self.persistent_id = make_id(8)
-        self.username = "rl-bot-agent001"
+        self.username = f"rl-bot-{self.client_id}"
         self.player_id: str | None = None
         self.current_game_id: str | None = None
         self.has_spawned: bool = False
@@ -97,6 +98,9 @@ class BotConnection(ConnectionHandler):
                 self.has_spawned = True
 
     async def send_action(self, ws, action: dict) -> None:
+        if self.current_game_id is None:
+            return
+
         state = self.env.current_state or {}
         self.sync_player_state(state)
 
