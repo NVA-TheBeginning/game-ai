@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 mpl.use("Agg")
 
+GAME_NUMBER_LABEL = "Game Number"
+
 
 class GameMetrics:
     def __init__(self) -> None:
@@ -87,7 +89,7 @@ class GameMetrics:
         # Plot 1: Total Reward per Game + moving average
         axes[0, 0].plot(game_numbers, self.game_scores, marker="o", linewidth=2)
         axes[0, 0].set_title("Total Reward per Game")
-        axes[0, 0].set_xlabel("Game Number")
+        axes[0, 0].set_xlabel(GAME_NUMBER_LABEL)
         axes[0, 0].set_ylabel("Total Reward")
         axes[0, 0].grid(visible=True, alpha=0.3)
         if len(self.game_scores) > 1:
@@ -116,7 +118,7 @@ class GameMetrics:
             )
         axes[0, 1].set_ylim(0, 1)
         axes[0, 1].set_title("Win Rate (cumulative)")
-        axes[0, 1].set_xlabel("Game Number")
+        axes[0, 1].set_xlabel(GAME_NUMBER_LABEL)
         axes[0, 1].set_ylabel("Win Rate")
         axes[0, 1].grid(visible=True, alpha=0.3)
 
@@ -125,7 +127,7 @@ class GameMetrics:
             game_numbers, self.game_durations, marker="s", color="green", linewidth=2
         )
         axes[1, 0].set_title("Game Duration (ticks)")
-        axes[1, 0].set_xlabel("Game Number")
+        axes[1, 0].set_xlabel(GAME_NUMBER_LABEL)
         axes[1, 0].set_ylabel("Ticks")
         axes[1, 0].grid(visible=True, alpha=0.3)
 
@@ -140,7 +142,7 @@ class GameMetrics:
                 label="Q-table size",
             )
         axes[1, 1].set_title("Q-table Size & Epsilon per Game")
-        axes[1, 1].set_xlabel("Game Number")
+        axes[1, 1].set_xlabel(GAME_NUMBER_LABEL)
         axes[1, 1].set_ylabel("States", color="purple")
         axes[1, 1].tick_params(axis="y", labelcolor="purple")
         axes[1, 1].grid(visible=True, alpha=0.3)
