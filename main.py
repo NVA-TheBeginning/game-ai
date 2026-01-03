@@ -29,7 +29,6 @@ from lib.constants import (
     REWARD_VERY_HIGH_POPULATION,
     REWARD_VERY_LOW_POPULATION,
     REWARD_VICTORY,
-    SPAWN_PHASE_DURATION,
 )
 from lib.player_state import PlayerState
 from lib.qtable import QTable
@@ -142,9 +141,7 @@ class Environment:
         new_state: dict[str, Any],
         action: dict[str, Any] | None,
     ) -> float:
-        tick = new_state.get("tick", 0)
-
-        if tick < SPAWN_PHASE_DURATION:
+        if new_state.get("inSpawnPhase"):
             return self.rewards_spawn(old_state, new_state, action)
 
         if LEARNING_ASSISTANCE == "low" and action:
@@ -152,7 +149,10 @@ class Environment:
             action_type = action.get("type")
 
             if (
-                (action_type == Action.SPAWN.value and old_me.get("ownedCount", 0) > 0)
+                (
+                    action_type == Action.SPAWN.value
+                    and not old_state.get("inSpawnPhase")
+                )
                 or (
                     action_type == Action.ATTACK.value
                     and old_me.get("population", 0) == 0
@@ -325,11 +325,8 @@ class Agent:
                             }
                         )
             case "high":
-                if state.get("inSpawnPhase"):
-                    if me.get("ownedCount", 0) == 0:
-                        possible_actions = [
-                            {"type": Action.SPAWN.value, "x": -1, "y": -1}
-                        ]
+                if state.get("inSpawnPhase") and me.get("ownedCount", 0) == 0:
+                    possible_actions = [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
                 elif candidates:
                     gold = me.get("gold", 0)
                     city_count = me.get("buildings", {}).get("cities", 0)
@@ -357,11 +354,8 @@ class Agent:
                                 }
                             )
             case _:
-                if state.get("inSpawnPhase"):
-                    if me.get("ownedCount", 0) == 0:
-                        possible_actions = [
-                            {"type": Action.SPAWN.value, "x": -1, "y": -1}
-                        ]
+                if state.get("inSpawnPhase") and me.get("ownedCount", 0) == 0:
+                    possible_actions = [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
                 elif candidates:
                     gold = me.get("gold", 0)
                     city_count = me.get("buildings", {}).get("cities", 0)
