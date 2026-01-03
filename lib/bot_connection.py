@@ -191,10 +191,7 @@ class BotConnection(ConnectionHandler):
         return candidates[neighbor_index]
 
     def resolve_target_player_id(self, target: dict | None) -> str | None:
-        if target is None:
-            return None
-
-        return target.get("ownerPlayerID")
+        return target.get("ownerPlayerID") if target else None
 
     def calculate_attack_troops(self, action: dict, state: dict) -> int:
         troops_ratio = action.get("ratio", 0.5)

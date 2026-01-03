@@ -162,9 +162,7 @@ class QTable:
 
     async def get_max_q_value(self, state_key: Any) -> float:
         async with await self.get_lock():
-            if state_key not in self._local_qtable:
-                return 0.0
-            if not self._local_qtable[state_key]:
+            if state_key not in self._local_qtable or not self._local_qtable[state_key]:
                 return 0.0
             return max(self._local_qtable[state_key].values())
 

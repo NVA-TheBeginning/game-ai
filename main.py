@@ -65,8 +65,9 @@ class Environment:
         self._state_event.clear()
         await self._state_event.wait()
 
+        action_type = action.get("type") if action else None
         reward = self.calculate_reward(
-            self.previous_state or {}, self.current_state or {}, action
+            self.previous_state or {}, self.current_state or {}, action_type
         )
 
         return self.current_state, reward
@@ -99,14 +100,15 @@ class Environment:
 
     def rewards_conquest(self, new_state: dict[str, Any]) -> float:
         player = PlayerState(new_state or {})
+        reward = 0.0
         if player.conquest_percent >= CONQUEST_WIN_THRESHOLD:
-            return REWARD_VICTORY
-        return 0.0
+            reward = REWARD_VICTORY
+        return reward
 
     def rewards_attack_at_low_population(
-        self, old_state: dict[str, Any], action: dict[str, Any] | None
+        self, old_state: dict[str, Any], action: str | None
     ) -> float:
-        if action and action.get("type") == Action.ATTACK.value:
+        if action == Action.ATTACK.value:
             player = PlayerState(old_state or {})
             if player.population_ratio < LOW_POPULATION_THRESHOLD:
                 return REWARD_ATTACK_AT_LOW_POPULATION
@@ -116,11 +118,11 @@ class Environment:
         self,
         old_state: dict[str, Any],
         new_state: dict[str, Any],
-        action: dict[str, Any] | None,
+        action: str | None,
     ) -> float:
         reward = 0.0
 
-        if action and action.get("type") == Action.SPAWN.value:
+        if action == Action.SPAWN.value:
             reward += REWARD_SPAWN_SUCCESS
 
         prev_in_spawn = bool((old_state or {}).get("inSpawnPhase", False))
@@ -139,26 +141,19 @@ class Environment:
         self,
         old_state: dict[str, Any],
         new_state: dict[str, Any],
-        action: dict[str, Any] | None,
+        action: str | None,
     ) -> float:
         if new_state.get("inSpawnPhase"):
             return self.rewards_spawn(old_state, new_state, action)
 
-        if LEARNING_ASSISTANCE == "low" and action:
+        if LEARNING_ASSISTANCE == "low" and action is not None:
             old_me = old_state.get("me", {})
-            action_type = action.get("type")
 
             if (
-                (
-                    action_type == Action.SPAWN.value
-                    and not old_state.get("inSpawnPhase")
-                )
+                (action == Action.SPAWN.value and not old_state.get("inSpawnPhase"))
+                or (action == Action.ATTACK.value and old_me.get("population", 0) == 0)
                 or (
-                    action_type == Action.ATTACK.value
-                    and old_me.get("population", 0) == 0
-                )
-                or (
-                    action_type == Action.BUILD.value
+                    action == Action.BUILD.value
                     and old_me.get("gold", 0)
                     < calculate_building_cost(
                         BuildingType.CITY, old_me.get("buildings", {}).get("cities", 0)
@@ -204,14 +199,14 @@ class Agent:
 
     def get_state(self):
         s = getattr(self.env, "current_state", {}) or {}
-        me = s.get("me") or {}
+        player = PlayerState(s)
         candidates = s.get("candidates") or []
 
         in_spawn = bool(s.get("inSpawnPhase", False))
-        population = me.get("population", 0)
-        max_population = me.get("maxPopulation", 1)
+        population = player.population
+        max_population = player.max_population
         step_size = 10 / PRECISION
-        conquest_pct = round(me.get("conquestPercent", 0) / step_size) * step_size
+        conquest_pct = round(player.conquest_percent / step_size) * step_size
 
         population_pct = (
             round((population / max_population) * 100 / step_size) * step_size
@@ -225,11 +220,8 @@ class Agent:
             ratio = calculate_neighbor_ratio(population, enemy_troops)
             neighbor_ratios.append(ratio)
 
-        buildings = me.get("buildings", {})
-        gold = me.get("gold", 0)
-        city_count = buildings.get("cities", 0)
-        city_cost = calculate_building_cost(BuildingType.CITY, city_count)
-        can_afford_city = int(gold >= city_cost)
+        city_cost = calculate_building_cost(BuildingType.CITY, player.city_count)
+        can_afford_city = int(player.gold >= city_cost)
 
         return (
             in_spawn,
@@ -246,8 +238,10 @@ class Agent:
         prev_state_key = previous_state
 
         action_type = action.get("type")
+        action_key = Action.NONE.value
+
         if action_type == Action.SPAWN.value:
-            action_key = "spawn"
+            action_key = Action.SPAWN.value
         elif action_type == Action.ATTACK.value:
             neighbor_idx = action.get("neighbor_index")
             troop_ratio = action.get("ratio")
@@ -259,12 +253,8 @@ class Agent:
                 )
                 strength_ratio = calculate_neighbor_ratio(my_troops, enemy_troops)
                 action_key = f"attack:{strength_ratio}|{troop_ratio}"
-            else:
-                action_key = Action.NONE.value
         elif action_type == Action.BUILD.value:
             action_key = f"build:{action.get('unit')}"
-        else:
-            action_key = Action.NONE.value
 
         current_q = await self.qtable.get_q_value(prev_state_key, action_key)
         max_next_q = await self.qtable.get_max_q_value(new_state_key)
@@ -301,19 +291,14 @@ class Agent:
         me = state.get("me") or {}
         possible_actions = [{"type": Action.NONE.value}]
 
+        SPAWN_REQUEST = {"type": Action.SPAWN.value, "x": -1, "y": -1}
         match LEARNING_ASSISTANCE:
             case "low":
-                if state.get("inSpawnPhase"):
-                    possible_actions = [
-                        {"type": Action.NONE.value},
-                        {"type": Action.SPAWN.value, "x": -1, "y": -1},
-                    ]
-                else:
-                    possible_actions = [
-                        {"type": Action.NONE.value},
-                        {"type": Action.SPAWN.value, "x": -1, "y": -1},
-                        {"type": Action.BUILD.value, "unit": BuildingType.CITY.value},
-                    ]
+                possible_actions.append(SPAWN_REQUEST)
+                if not state.get("inSpawnPhase"):
+                    possible_actions.append(
+                        {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+                    )
                     for idx, candidate in enumerate(candidates):
                         possible_actions.append(
                             {
@@ -324,9 +309,9 @@ class Agent:
                                 "ratio": 0.2,
                             }
                         )
-            case "high":
+            case "high" | _:
                 if state.get("inSpawnPhase") and me.get("ownedCount", 0) == 0:
-                    possible_actions = [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
+                    possible_actions = [SPAWN_REQUEST]
                 elif candidates:
                     gold = me.get("gold", 0)
                     city_count = me.get("buildings", {}).get("cities", 0)
@@ -342,7 +327,11 @@ class Agent:
 
                     population = me.get("population", 0)
                     max_population = me.get("maxPopulation", 1)
-                    if population >= HIGH_POPULATION_THRESHOLD * max_population:
+                    can_attack = (
+                        LEARNING_ASSISTANCE != "high"
+                        or population >= HIGH_POPULATION_THRESHOLD * max_population
+                    )
+                    if can_attack:
                         for idx, candidate in enumerate(candidates):
                             possible_actions.append(
                                 {
@@ -353,45 +342,16 @@ class Agent:
                                     "ratio": 0.2,
                                 }
                             )
-            case _:
-                if state.get("inSpawnPhase") and me.get("ownedCount", 0) == 0:
-                    possible_actions = [{"type": Action.SPAWN.value, "x": -1, "y": -1}]
-                elif candidates:
-                    gold = me.get("gold", 0)
-                    city_count = me.get("buildings", {}).get("cities", 0)
-                    city_cost = calculate_building_cost(BuildingType.CITY, city_count)
-
-                    if gold >= city_cost:
-                        possible_actions.append(
-                            {
-                                "type": Action.BUILD.value,
-                                "unit": BuildingType.CITY.value,
-                            }
-                        )
-
-                    for idx, candidate in enumerate(candidates):
-                        possible_actions.append(
-                            {
-                                "type": Action.ATTACK.value,
-                                "neighbor_index": idx,
-                                "x": candidate.get("x"),
-                                "y": candidate.get("y"),
-                                "ratio": 0.2,
-                            }
-                        )
-
-        if not possible_actions:
-            return {"type": Action.NONE.value}
 
         if random.random() < self.epsilon:
             self.random_actions += 1
             action = random.choice(possible_actions)
         else:
-            action_keys = []
+            action_keys = [Action.NONE.value]
             for a in possible_actions:
                 action_type = a.get("type")
                 if action_type == Action.SPAWN.value:
-                    action_keys.append("spawn")
+                    action_keys.append(Action.SPAWN.value)
                 elif action_type == Action.ATTACK.value:
                     neighbor_idx = a.get("neighbor_index")
                     troop_ratio = a.get("ratio")
@@ -402,12 +362,8 @@ class Agent:
                             my_troops, enemy_troops
                         )
                         action_keys.append(f"attack:{strength_ratio}|{troop_ratio}")
-                    else:
-                        action_keys.append(Action.NONE.value)
                 elif action_type == Action.BUILD.value:
                     action_keys.append(f"build:{a.get('unit')}")
-                else:
-                    action_keys.append(Action.NONE.value)
 
             q_values = await self.qtable.get_state_actions(self.state, action_keys)
 
