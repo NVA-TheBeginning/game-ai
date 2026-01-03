@@ -97,6 +97,8 @@ ALPHA = float(os.getenv("ALPHA", "0.5"))
 
 LEARNING_ASSISTANCE = os.getenv("LEARNING_ASSISTANCE", "mid")
 
+PRECISION = max(1, min(100, int(os.getenv("PRECISION", "2"))))
+
 ATTACK_RATIOS = [0.20]
 
 RATIO_4_TIMES_HIGHER = 4.0

@@ -1,4 +1,5 @@
 import asyncio
+import math
 import random
 import sys
 from typing import Any
@@ -17,13 +18,7 @@ from lib.constants import (
     LOW_POPULATION_THRESHOLD,
     MAX_NEIGHBORS_DISPLAY,
     MODE,
-    RATIO_2_TIMES_HIGHER,
-    RATIO_2_TIMES_LOWER,
-    RATIO_3_TIMES_HIGHER,
-    RATIO_3_TIMES_LOWER,
-    RATIO_4_TIMES_HIGHER,
-    RATIO_4_TIMES_LOWER,
-    RATIO_EQUAL,
+    PRECISION,
     REWARD_ATTACK_AT_LOW_POPULATION,
     REWARD_CONQUEST_GAIN,
     REWARD_CONQUEST_LOSS,
@@ -44,25 +39,13 @@ from lib.utils import Action, BuildingType, calculate_building_cost
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
     if enemy_troops == 0:
-        return 3
+        return PRECISION
     if my_troops == 0:
-        return -3
-
+        return -PRECISION
     ratio = my_troops / enemy_troops
-    thresholds = [
-        (RATIO_4_TIMES_HIGHER, 3),
-        (RATIO_3_TIMES_HIGHER, 2),
-        (RATIO_2_TIMES_HIGHER, 1),
-        (RATIO_EQUAL, 0),
-        (RATIO_2_TIMES_LOWER, -1),
-        (RATIO_3_TIMES_LOWER, -2),
-        (RATIO_4_TIMES_LOWER, -3),
-    ]
-
-    for threshold, value in thresholds:
-        if ratio >= threshold:
-            return value
-    return -4
+    log_ratio = math.log2(ratio)
+    scaled_value = (log_ratio / 2.0) * PRECISION
+    return int(max(-PRECISION, min(PRECISION, round(scaled_value))))
 
 
 class Environment:
@@ -170,8 +153,17 @@ class Environment:
 
             if (
                 (action_type == Action.SPAWN.value and old_me.get("ownedCount", 0) > 0)
-                or (action_type == Action.ATTACK.value and old_me.get("population", 0) == 0)
-                or (action_type == Action.BUILD.value and old_me.get("gold", 0) < calculate_building_cost(BuildingType.CITY, old_me.get("buildings", {}).get("cities", 0)))
+                or (
+                    action_type == Action.ATTACK.value
+                    and old_me.get("population", 0) == 0
+                )
+                or (
+                    action_type == Action.BUILD.value
+                    and old_me.get("gold", 0)
+                    < calculate_building_cost(
+                        BuildingType.CITY, old_me.get("buildings", {}).get("cities", 0)
+                    )
+                )
             ):
                 return REWARD_INVALID_ACTION
 
@@ -218,12 +210,14 @@ class Agent:
         in_spawn = bool(s.get("inSpawnPhase", False))
         population = me.get("population", 0)
         max_population = me.get("maxPopulation", 1)
-        conquest_pct = round(me.get("conquestPercent", 0) / 5) * 5
+        step_size = 10 / PRECISION
+        conquest_pct = round(me.get("conquestPercent", 0) / step_size) * step_size
 
-        if max_population > 0:
-            population_pct = round((population / max_population) * 100 / 5) * 5
-        else:
-            population_pct = 0
+        population_pct = (
+            round((population / max_population) * 100 / step_size) * step_size
+            if max_population > 0
+            else 0
+        )
 
         neighbor_ratios = []
         for candidate in candidates:
@@ -343,7 +337,10 @@ class Agent:
 
                     if gold >= city_cost:
                         possible_actions.append(
-                            {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+                            {
+                                "type": Action.BUILD.value,
+                                "unit": BuildingType.CITY.value,
+                            }
                         )
 
                     population = me.get("population", 0)
@@ -372,7 +369,10 @@ class Agent:
 
                     if gold >= city_cost:
                         possible_actions.append(
-                            {"type": Action.BUILD.value, "unit": BuildingType.CITY.value}
+                            {
+                                "type": Action.BUILD.value,
+                                "unit": BuildingType.CITY.value,
+                            }
                         )
 
                     for idx, candidate in enumerate(candidates):
