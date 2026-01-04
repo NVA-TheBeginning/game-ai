@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lib.constants import (
     CITY_BASE_COST,
@@ -9,6 +9,9 @@ from lib.constants import (
     PORT_BASE_COST,
     PORT_MAX_COST,
 )
+
+if TYPE_CHECKING:
+    from lib.player_state import PlayerState
 
 FLOAT_TOLERANCE = 1e-9
 
@@ -26,40 +29,31 @@ class BuildingType(Enum):
     POST = "Defense Post"
 
 
-def format_number(v: float | None, fmt: str = "{:.2f}") -> str:
-    if v is None:
-        return "N/A"
-    try:
-        return fmt.format(v)
-    except Exception:
-        try:
-            return str(float(v))
-        except Exception:
-            return str(v)
-
-
-def normalize_number(v: Any) -> int | float | None:
-    if v is None:
-        return None
-    try:
-        if isinstance(v, int):
-            return v
-        f = float(v)
-        if abs(f - int(f)) < FLOAT_TOLERANCE:
-            return int(f)
-        return f
-    except Exception:
-        return None
-
-
-def get_action_key(action: dict[str, Any]) -> str:
+def get_action_key(action: dict[str, Any], player: PlayerState, ratio_fn) -> str:
     action_type = action.get("type")
+
     if action_type == Action.SPAWN.value:
-        return f"spawn:{action.get('x')},{action.get('y')}"
-    if action_type == Action.ATTACK.value:
-        return f"attack:idx{action.get('neighbor_index')}|ratio:{action.get('ratio')}"
+        return Action.SPAWN.value
+
     if action_type == Action.BUILD.value:
         return f"build:{action.get('unit')}"
+
+    if action_type == Action.ATTACK.value:
+        neighbor_idx = action.get("neighbor_index")
+        troop_ratio = action.get("ratio")
+
+        if (
+            neighbor_idx is None
+            or not isinstance(neighbor_idx, int)
+            or neighbor_idx >= len(player.enemies)
+        ):
+            return Action.NONE.value
+
+        strength_ratio = ratio_fn(
+            player.population, player.enemies[neighbor_idx].troops
+        )
+        return f"attack:{strength_ratio}|{troop_ratio}"
+
     return Action.NONE.value
 
 

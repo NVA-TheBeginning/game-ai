@@ -29,10 +29,6 @@ class GameMetrics:
         self.current_game_start_tick = None
         self.current_game_score = 0.0
 
-    def update_tick(self, tick: int) -> None:
-        if self.current_game_start_tick is None:
-            self.current_game_start_tick = tick
-
     def add_reward(self, reward: float) -> None:
         self.current_game_score += reward
 

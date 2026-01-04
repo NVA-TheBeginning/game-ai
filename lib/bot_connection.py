@@ -2,6 +2,7 @@ import asyncio
 import json
 import random
 import string
+from typing import TYPE_CHECKING
 
 import websockets
 from websockets import ConnectionClosed
@@ -16,7 +17,11 @@ from lib.constants import (
     SPAWN_PHASE_DURATION,
 )
 from lib.metrics import GameMetrics
+from lib.player_state import PlayerState
 from lib.utils import Action
+
+if TYPE_CHECKING:
+    from lib.enemy import Enemy
 
 
 def make_id(length: int = 8) -> str:
@@ -31,7 +36,8 @@ class SpawnAction:
 
 class AttackAction:
     async def execute(self, ws, action: dict, context: dict) -> None:
-        await context["bot"].handle_attack_action(ws, action, context["state"])
+        player = PlayerState(context["state"])
+        await context["bot"].handle_attack_action(ws, action, player)
 
 
 class BuildAction:
@@ -74,37 +80,22 @@ class BotConnection(ConnectionHandler):
         except Exception as e:
             print(f"Failed to send {log_prefix}:", e)
 
-    def extract_player_id_from_state(self, state: dict) -> str | None:
-        me = state.get("me", {})
-        me_small_id = me.get("smallID")
-
-        if me_small_id is None or me_small_id < 0:
-            return None
-
-        players = state.get("players", [])
-        for player in players:
-            if player.get("smallID") == me_small_id:
-                return player.get("playerID")
-
-        return None
-
-    def sync_player_state(self, state: dict) -> None:
-        state_player_id = self.extract_player_id_from_state(state)
-        if state_player_id:
-            self.player_id = state_player_id
-            me = state.get("me", {})
-            if me.get("ownedCount", 0) > 0 or me.get("population", 0) > 0:
+    def sync_player_state(self, player: PlayerState) -> None:
+        if player.player_id:
+            self.player_id = player.player_id
+            if player.owned_count > 0 or player.population > 0:
                 self.has_spawned = True
 
     async def send_action(self, ws, action: dict) -> None:
         state = self.env.current_state or {}
-        self.sync_player_state(state)
+        player = PlayerState(state)
+        self.sync_player_state(player)
 
         action_type = action.get("type")
-        handler = self.actions.get(action_type)
-
-        if handler:
-            await handler.execute(ws, action, {"bot": self, "state": state})
+        if action_type:
+            handler = self.actions.get(action_type)
+            if handler:
+                await handler.execute(ws, action, {"bot": self, "state": state})
 
     async def handle_spawn_action(self, ws, action: dict) -> None:
         if self.has_spawned:
@@ -131,14 +122,17 @@ class BotConnection(ConnectionHandler):
         self.has_spawned = True
         await self.send_intent(ws, intent_msg, "SPAWN")
 
-    async def handle_attack_action(self, ws, action: dict, state: dict) -> None:
+    async def handle_attack_action(self, ws, action: dict, player: PlayerState) -> None:
         if self.player_id is None:
             print("Warning: Cannot send attack intent - player_id not set")
             return
 
-        target = self.find_attack_target(action, state)
-        target_player_id = self.resolve_target_player_id(target)
-        troops = self.calculate_attack_troops(action, state)
+        target = self.find_attack_target(action, player)
+        if target is None:
+            return
+
+        target_player_id = target.owner_player_id
+        troops = self.calculate_attack_troops(action, player)
 
         intent_attack = {
             "type": "intent",
@@ -149,8 +143,8 @@ class BotConnection(ConnectionHandler):
                 "clientID": self.client_id,
                 "attackerID": self.player_id,
                 "targetID": target_player_id,
-                "x": target.get("x") if target else None,
-                "y": target.get("y") if target else None,
+                "x": target.x,
+                "y": target.y,
                 "troops": troops,
             },
         }
@@ -177,29 +171,22 @@ class BotConnection(ConnectionHandler):
         }
         await self.send_intent(ws, intent_build, f"BUILD {unit}")
 
-    def find_attack_target(self, action: dict, state: dict) -> dict | None:
-        candidates = state.get("candidates", [])
-
+    def find_attack_target(self, action: dict, player: PlayerState) -> Enemy | None:
         neighbor_index = action.get("neighbor_index")
         if (
             neighbor_index is None
             or neighbor_index < 0
-            or neighbor_index >= len(candidates)
+            or neighbor_index >= len(player.enemies)
         ):
             return None
 
-        return candidates[neighbor_index]
+        return player.enemies[neighbor_index]
 
-    def resolve_target_player_id(self, target: dict | None) -> str | None:
-        return target.get("ownerPlayerID") if target else None
-
-    def calculate_attack_troops(self, action: dict, state: dict) -> int:
+    def calculate_attack_troops(self, action: dict, player: PlayerState) -> int:
         troops_ratio = action.get("ratio", 0.5)
-        my_troops = state.get("me", {}).get("population", 0)
-
         try:
             normalized_ratio = max(0.0, min(1.0, float(troops_ratio)))
-            return int(normalized_ratio * int(my_troops))
+            return int(normalized_ratio * player.population)
         except (ValueError, TypeError):
             return 0
 
@@ -224,38 +211,30 @@ class BotConnection(ConnectionHandler):
 
         self.debug_print_state(state)
 
-        me = state.get("me", {})
-        owned_count = me.get("ownedCount", 0)
-        population = me.get("population", 0)
-        conquest_pct = me.get("conquestPercent", 0)
-
+        player = PlayerState(state)
         self.env.update_state(state)
-        self.previous_owned_count = owned_count
+        self.previous_owned_count = player.owned_count
 
-        self.handle_fail_spawn(state)
-        self.handle_victory(state)
-        self.handle_game_over(owned_count, population, conquest_pct)
+        self.handle_fail_spawn(player)
+        self.handle_victory(player)
+        self.handle_game_over(
+            player.owned_count, player.population, player.conquest_percent
+        )
 
-    def handle_fail_spawn(self, state: dict) -> None:
-        tick = state.get("tick", 0)
-        in_spawn_phase = state.get("inSpawnPhase", True)
-        me = state.get("me", {})
-        owned_count = me.get("ownedCount", 0)
-
+    def handle_fail_spawn(self, player: PlayerState) -> None:
         if (
-            not in_spawn_phase
-            and owned_count == 0
+            not player.in_spawn_phase
+            and player.owned_count == 0
             and self.previous_owned_count == 0
-            and tick > SPAWN_PHASE_DURATION + 50
+            and player.tick > SPAWN_PHASE_DURATION + 50
         ):
-            print(f"\nSpawn failed - never acquired any tiles (tick: {tick})")
+            print(f"\nSpawn failed - never acquired any tiles (tick: {player.tick})")
             raise RuntimeError("Spawn failed - ending game")
 
-    def handle_victory(self, state: dict) -> None:
-        conquest_pct = state.get("me", {}).get("conquestPercent", 0)
-        if conquest_pct >= CONQUEST_WIN_THRESHOLD:
+    def handle_victory(self, player: PlayerState) -> None:
+        if player.conquest_percent >= CONQUEST_WIN_THRESHOLD:
             print(
-                f"\nVictory! Conquest: {conquest_pct}% (threshold: {CONQUEST_WIN_THRESHOLD}%)"
+                f"\nVictory! Conquest: {player.conquest_percent}% (threshold: {CONQUEST_WIN_THRESHOLD}%)"
             )
             if self.metrics:
                 self.metrics.game_wins.append(1)
@@ -270,7 +249,7 @@ class BotConnection(ConnectionHandler):
             )
             raise RuntimeError("Player eliminated - ending game")
 
-    async def on_agent_action(self, _action: dict) -> None:
+    async def on_agent_action(self) -> None:
         if self.metrics:
             self.metrics.add_reward(self.agent.reward)
 
@@ -343,18 +322,12 @@ class BotConnection(ConnectionHandler):
                     await self.cleanup()
 
                     if self.metrics:
-                        final_tick = (self.env.current_state or {}).get("tick", 0)
-                        me = (self.env.current_state or {}).get("me", {})
-                        conquest_pct = me.get("conquestPercent", 0) or 0
-                        win = conquest_pct >= CONQUEST_WIN_THRESHOLD
-                        try:
-                            qtable_size = await self.agent.qtable.get_size()
-                        except Exception:
-                            qtable_size = 0
+                        player = PlayerState(self.env.current_state or {})
+                        qtable_size = await self.agent.qtable.get_size()
 
                         self.metrics.end_game(
-                            final_tick,
-                            win=win,
+                            player.tick,
+                            win=player.conquest_percent >= CONQUEST_WIN_THRESHOLD,
                             qtable_size=qtable_size,
                             epsilon=self.agent.epsilon,
                         )

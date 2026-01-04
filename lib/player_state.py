@@ -1,5 +1,7 @@
 from typing import Any
 
+from lib.enemy import Enemy
+
 
 class PlayerState:
     def __init__(self, state: dict[str, Any]):
@@ -39,3 +41,35 @@ class PlayerState:
         if self.max_population == 0:
             return 0.0
         return self.population / self.max_population
+
+    @property
+    def small_id(self) -> int | None:
+        return self._me.get("smallID")
+
+    @property
+    def in_spawn_phase(self) -> bool:
+        return bool(self._state.get("inSpawnPhase", False))
+
+    @property
+    def tick(self) -> int:
+        return self._state.get("tick", 0)
+
+    @property
+    def enemies(self) -> list[Enemy]:
+        candidates_data = self._state.get("candidates") or []
+        return [Enemy(c) for c in candidates_data]
+
+    @property
+    def players(self) -> list:
+        return self._state.get("players", [])
+
+    @property
+    def player_id(self) -> str | None:
+        if self.small_id is None or self.small_id < 0:
+            return None
+
+        for player in self.players:
+            if player.get("smallID") == self.small_id:
+                return player.get("playerID")
+
+        return None

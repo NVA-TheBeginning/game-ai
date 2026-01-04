@@ -167,5 +167,8 @@ class QTable:
             return max(self._local_qtable[state_key].values())
 
     async def get_size(self) -> int:
-        async with await self.get_lock():
-            return len(self._local_qtable)
+        try:
+            async with await self.get_lock():
+                return len(self._local_qtable)
+        except Exception:
+            return 0
