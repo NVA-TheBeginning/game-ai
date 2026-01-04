@@ -33,7 +33,12 @@ from lib.constants import (
 from lib.player_state import PlayerState
 from lib.qtable import QTable
 from lib.server_interface import ServerInterface
-from lib.utils import Action, BuildingType, calculate_building_cost
+from lib.utils import (
+    Action,
+    BuildingType,
+    calculate_building_cost,
+    get_action_key,
+)
 
 
 def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
@@ -213,22 +218,7 @@ class Agent:
         prev_state_key = previous_state
 
         player = PlayerState(self.env.current_state or {})
-
-        action_type = action.get("type")
-        action_key = Action.NONE.value
-
-        if action_type == Action.SPAWN.value:
-            action_key = Action.SPAWN.value
-        elif action_type == Action.ATTACK.value:
-            neighbor_idx = action.get("neighbor_index")
-            troop_ratio = action.get("ratio")
-            if neighbor_idx is not None and neighbor_idx < len(player.enemies):
-                strength_ratio = calculate_neighbor_ratio(
-                    player.population, player.enemies[neighbor_idx].troops
-                )
-                action_key = f"attack:{strength_ratio}|{troop_ratio}"
-        elif action_type == Action.BUILD.value:
-            action_key = f"build:{action.get('unit')}"
+        action_key = get_action_key(action, player, calculate_neighbor_ratio)
 
         current_q = await self.qtable.get_q_value(prev_state_key, action_key)
         max_next_q = await self.qtable.get_max_q_value(new_state_key)
@@ -314,23 +304,10 @@ class Agent:
             self.random_actions += 1
             action = random.choice(possible_actions)
         else:
-            action_keys = [Action.NONE.value]
-            for a in possible_actions:
-                action_type = a.get("type")
-                if action_type == Action.SPAWN.value:
-                    action_keys.append(Action.SPAWN.value)
-                elif action_type == Action.ATTACK.value:
-                    neighbor_idx = a.get("neighbor_index")
-                    troop_ratio = a.get("ratio")
-                    if isinstance(neighbor_idx, int) and neighbor_idx < len(
-                        player.enemies
-                    ):
-                        strength_ratio = calculate_neighbor_ratio(
-                            player.population, player.enemies[neighbor_idx].troops
-                        )
-                        action_keys.append(f"attack:{strength_ratio}|{troop_ratio}")
-                elif action_type == Action.BUILD.value:
-                    action_keys.append(f"build:{a.get('unit')}")
+            action_keys = [
+                get_action_key(a, player, calculate_neighbor_ratio)
+                for a in possible_actions
+            ]
 
             q_values = await self.qtable.get_state_actions(self.state, action_keys)
 
