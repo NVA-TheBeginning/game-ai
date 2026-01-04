@@ -264,8 +264,6 @@ class BotConnection(ConnectionHandler):
             print(
                 f"\nVictory! Conquest: {conquest_pct}% (threshold: {CONQUEST_WIN_THRESHOLD}%)"
             )
-            if self.metrics:
-                self.metrics.game_wins.append(1)
             raise RuntimeError("Victory achieved - ending game")
 
     def handle_game_over(
@@ -365,16 +363,17 @@ class BotConnection(ConnectionHandler):
                             qtable_size=qtable_size,
                             epsilon=self.agent.epsilon,
                         )
-                        graph_path = self.metrics.generate_graphs(
-                            alpha=self.agent.alpha,
-                            gamma=self.agent.gamma,
-                        )
-                        if graph_path:
-                            print(f"Graph saved to: {graph_path}")
+                        if self.client_id == "agent001":
+                            graph_path = self.metrics.generate_graphs(
+                                alpha=self.agent.alpha,
+                                gamma=self.agent.gamma,
+                            )
+                            if graph_path:
+                                print(f"Graph saved to: {graph_path}")
                         summary = self.metrics.get_summary()
                         if summary:
                             print(
-                                "Total games: "
+                                f"[{self.client_id}] Total games: "
                                 f"{summary['total_games']}, "
                                 f"Avg score: {summary['avg_score']:.2f}, "
                                 f"Avg duration: {summary['avg_duration']:.1f} ticks, "
