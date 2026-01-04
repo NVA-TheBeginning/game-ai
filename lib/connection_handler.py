@@ -14,7 +14,8 @@ class ConnectionHandler(ABC):
         try:
             await self.env._state_event.wait()
             while self.running:
-                action = await self.agent.best_action()
+                possible_actions = self.agent.get_possible_actions()
+                action = await self.agent.select_action(possible_actions)
                 await self.agent.do(action)
                 await self.on_agent_action()
         except asyncio.CancelledError:

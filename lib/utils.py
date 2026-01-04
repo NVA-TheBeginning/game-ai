@@ -1,19 +1,10 @@
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from lib.constants import (
-    CITY_BASE_COST,
-    CITY_MAX_COST,
-    DEFENSE_POST_BASE_COST,
-    DEFENSE_POST_MAX_COST,
-    PORT_BASE_COST,
-    PORT_MAX_COST,
-)
+from lib.constants import CITY_BASE_COST, CITY_MAX_COST
 
 if TYPE_CHECKING:
     from lib.player_state import PlayerState
-
-FLOAT_TOLERANCE = 1e-9
 
 
 class Action(Enum):
@@ -60,8 +51,4 @@ def get_action_key(action: dict[str, Any], player: PlayerState, ratio_fn) -> str
 def calculate_building_cost(building_type: BuildingType, current_count: int) -> int:
     if building_type == BuildingType.CITY:
         return min(CITY_MAX_COST, 2**current_count * CITY_BASE_COST)
-    if building_type == BuildingType.PORT:
-        return min(PORT_MAX_COST, 2**current_count * PORT_BASE_COST)
-    if building_type == BuildingType.POST:
-        return min(DEFENSE_POST_MAX_COST, (current_count + 1) * DEFENSE_POST_BASE_COST)
     return 0
