@@ -52,6 +52,10 @@ def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
     return int(max(-PRECISION, min(PRECISION, round(scaled_value))))
 
 
+def arg_max(table):
+    return max(table, key=table.get)
+
+
 class Environment:
     def __init__(self):
         self.current_state: dict[str, Any] | None = None
@@ -166,13 +170,11 @@ class Agent:
         self.epsilon = EPSILON
         self.history = []
         self.total_reward = 0
-        self._state_lock = asyncio.Lock()
         self.reset()
 
     def reset(self):
         if self.score is not None:
             self.history.append(self.total_reward)
-        self.iterations = 0
         self.score = 0
         self.total_reward = 0
         self.state = None
@@ -228,7 +230,6 @@ class Agent:
 
         self.score += self.reward
         self.total_reward += self.reward
-        self.iterations += 1
 
         in_spawn, pop_pct, conquest_state, can_afford_city, neighbor_ratios = (
             new_state_key
@@ -246,6 +247,13 @@ class Agent:
 
     async def best_action(self):
         self.state = self.get_state()
+
+        async with await self.qtable.get_lock():
+            if self.qtable._local_qtable.get(self.state):
+                return arg_max(self.qtable._local_qtable[self.state])
+        return None
+
+    def get_possible_actions(self):
         player = PlayerState(self.env.current_state or {})
         possible_actions = [{"type": Action.NONE.value}]
 
@@ -300,35 +308,37 @@ class Agent:
                                 }
                             )
 
-        if random.random() < self.epsilon:
+        return possible_actions
+
+    async def select_action(self, possible_actions):
+        best_action_key = None
+
+        if random.random() >= self.epsilon:
+            best_action_key = await self.best_action()
+
+        action = None
+        if best_action_key is not None:
+            player = PlayerState(self.env.current_state or {})
+            action = next(
+                (
+                    a
+                    for a in possible_actions
+                    if get_action_key(a, player, calculate_neighbor_ratio)
+                    == best_action_key
+                ),
+                None,
+            )
+
+        if action is None:
             self.random_actions += 1
             action = random.choice(possible_actions)
         else:
-            action_keys = [
-                get_action_key(a, player, calculate_neighbor_ratio)
-                for a in possible_actions
-            ]
+            self.qtable_actions += 1
 
-            q_values = await self.qtable.get_state_actions(self.state, action_keys)
-
-            if not q_values:
-                self.random_actions += 1
-                action = random.choice(possible_actions)
-            else:
-                best_action_key = max(q_values, key=lambda k: q_values[k])
-                action = None
-                for i, a in enumerate(possible_actions):
-                    if action_keys[i] == best_action_key:
-                        self.qtable_actions += 1
-                        action = a
-                        break
-                if action is None:
-                    self.random_actions += 1
-                    action = random.choice(possible_actions)
-
-        if action.get("type") == Action.NONE.value:
+        action_type = action.get("type")
+        if action_type == Action.NONE.value:
             self.wait_actions += 1
-        elif action.get("type") == Action.ATTACK.value:
+        elif action_type == Action.ATTACK.value:
             self.attack_actions += 1
 
         return action
