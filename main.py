@@ -186,9 +186,9 @@ class Agent:
         player = PlayerState(s)
 
         step_size = 10 / PRECISION
-        conquest_pct = round(player.conquest_percent / step_size) * step_size
+        conquest_pct = int(round(player.conquest_percent / step_size) * step_size)
 
-        population_pct = (
+        population_pct = int(
             round((player.population / player.max_population) * 100 / step_size)
             * step_size
             if player.max_population > 0
