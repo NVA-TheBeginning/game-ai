@@ -16,7 +16,7 @@ class ConnectionHandler(ABC):
             while self.running:
                 action = await self.agent.best_action()
                 await self.agent.do(action)
-                await self.on_agent_action(action)
+                await self.on_agent_action()
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -72,5 +72,5 @@ class ConnectionHandler(ABC):
         pass
 
     @abstractmethod
-    async def on_agent_action(self, _action: dict) -> None:
+    async def on_agent_action(self) -> None:
         pass

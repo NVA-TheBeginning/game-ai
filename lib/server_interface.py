@@ -25,7 +25,7 @@ class ServerInterface(ConnectionHandler):
 
         self.env.update_state(state)
 
-    async def on_agent_action(self, _action: dict) -> None:
+    async def on_agent_action(self) -> None:
         pass
 
     async def handle_connection(self, ws: ServerConnection) -> None:
