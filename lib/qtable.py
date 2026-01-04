@@ -126,18 +126,6 @@ class QTable:
                 return 0.0
             return self._local_qtable[state_key].get(action_key, 0.0)
 
-    async def get_state_actions(
-        self, state_key: Any, action_keys: list[str]
-    ) -> dict[str, float]:
-        async with await self.get_lock():
-            if state_key not in self._local_qtable:
-                return dict.fromkeys(action_keys, 0.0)
-
-            return {
-                action_key: self._local_qtable[state_key].get(action_key, 0.0)
-                for action_key in action_keys
-            }
-
     async def set_q_value(
         self, state_key: Any, action_key: str, q_value: float
     ) -> None:

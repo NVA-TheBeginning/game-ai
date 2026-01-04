@@ -16,8 +16,6 @@ class Action(Enum):
 
 class BuildingType(Enum):
     CITY = "City"
-    PORT = "Port"
-    POST = "Defense Post"
 
 
 def get_action_key(action: dict[str, Any], player: PlayerState, ratio_fn) -> str:
