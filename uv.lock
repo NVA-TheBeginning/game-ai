@@ -98,7 +98,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "pickledb", specifier = ">=1.5" },
+    { name = "pickledb", specifier = ">=1.6" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]
@@ -240,15 +240,15 @@ wheels = [
 
 [[package]]
 name = "pickledb"
-version = "1.5"
+version = "1.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
     { name = "orjson" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/c7/4adeebc5292040ca66547d90490d04cfd40d76d420b0783d465031c9df7f/pickledb-1.5.tar.gz", hash = "sha256:fd5835901c99fd380d8738f004043d0c0cd4bd845ba8b30accde795357b192c9", size = 106486, upload-time = "2025-12-21T06:51:49.113Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/36/62871f6215cc7e1741f2c659d341a3250bf6d88fa2fc98babfbc02c0dff6/pickledb-1.6.tar.gz", hash = "sha256:0a1311e932d92fb66ce6eeb7f6a9af56852dffa2054b6021ba3563402d5219e2", size = 107430, upload-time = "2026-01-05T04:52:07.542Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/3a/88c4681f62a374074f4cd72e05e1a1da67f206a3eb7edf294e3bea0823a6/pickledb-1.5-py3-none-any.whl", hash = "sha256:505cf46034790fa2d3af41b4b93f3f44301437bc74548f5c92f053c9efefd46c", size = 5209, upload-time = "2025-12-21T06:51:47.695Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/06/69ec73c5561fb40e4851d58860d1cbba3f603b3eb284ce516e57279091e2/pickledb-1.6-py3-none-any.whl", hash = "sha256:7992862909aca351e93974a35049a4d38e70c459e568a9083ac020b80c0751a6", size = 5224, upload-time = "2026-01-05T04:52:06.032Z" },
 ]
 
 [[package]]
