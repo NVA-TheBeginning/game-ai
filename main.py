@@ -44,7 +44,7 @@ def calculate_neighbor_ratio(my_troops: int, enemy_troops: int) -> int:
     ratio = my_troops / enemy_troops
     log_ratio = math.log2(ratio)
     scaled_value = (log_ratio / 2.0) * PRECISION
-    return int(max(-PRECISION, min(PRECISION, round(scaled_value))))
+
 
 
 class Environment:
@@ -211,10 +211,10 @@ class Agent:
         population = me.get("population", 0)
         max_population = me.get("maxPopulation", 1)
         step_size = 10 / PRECISION
-        conquest_pct = round(me.get("conquestPercent", 0) / step_size) * step_size
+        conquest_pct = int(round(me.get("conquestPercent", 0) / step_size)) * step_size
 
         population_pct = (
-            round((population / max_population) * 100 / step_size) * step_size
+            int(round((population / max_population) * 100 / step_size)) * step_size
             if max_population > 0
             else 0
         )
@@ -287,7 +287,7 @@ class Agent:
         )
         if len(neighbor_ratios) > MAX_NEIGHBORS_DISPLAY:
             neighbors_str += "..."
-        state_str = f"S:({int(in_spawn)},{pop_pct},{conquest_state},{can_afford_city},({neighbors_str}))"
+        state_str = f"S:({int(in_spawn)},{int(pop_pct)},{int(conquest_state)},{can_afford_city},({neighbors_str}))"
         status = f"\rTick: {tick:4d} | Pop: {player.population:7d}/{player.max_population:7d} | Conquest: {player.conquest_percent:2d}% | Gold: {player.gold:6d} | Cities: {player.city_count} | Reward: {self.reward:7.1f} | Total: {self.total_reward:8.1f} | R:{self.random_actions}/Q:{self.qtable_actions} | W:{self.wait_actions}/A:{self.attack_actions} | {state_str}"
         print(status + " " * 20, end="", flush=True)
 
